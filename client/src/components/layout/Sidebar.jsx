@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Users, BookOpen, School, DoorOpen, Calendar,
+  LayoutDashboard, Users, BookOpen, School, DoorOpen, Calendar, Clock,
   Zap, AlertTriangle, UserMinus, RefreshCw, ChevronLeft, ChevronRight,
   GraduationCap, Settings, FileText, Layers, Shield, Wrench,
   Menu, X, LogOut, ClipboardList, BarChart3
@@ -20,6 +20,7 @@ const navItems = [
   { path: '/classes', icon: School, label: 'Classes' },
   { path: '/subjects', icon: BookOpen, label: 'Subjects' },
   { path: '/rooms', icon: DoorOpen, label: 'Rooms' },
+  { path: '/periods', icon: Clock, label: 'Period Structure' },
   { divider: true, label: 'Rules & Config' },
   { path: '/requirements', icon: FileText, label: 'Weekly Periods' },
   { path: '/combinations', icon: Layers, label: 'Combined Classes' },

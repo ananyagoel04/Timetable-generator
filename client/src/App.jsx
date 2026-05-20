@@ -18,6 +18,7 @@ import Absences from './pages/Absences';
 import Substitutions from './pages/Substitutions';
 import AuditLogs from './pages/AuditLogs';
 import TeacherReplacements from './pages/TeacherReplacements';
+import PeriodStructure from './pages/PeriodStructure';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
@@ -51,6 +52,7 @@ function AppRoutes() {
         <Route path="/classes" element={<Classes />} />
         <Route path="/subjects" element={<Subjects />} />
         <Route path="/rooms" element={<Rooms />} />
+        <Route path="/periods" element={<PeriodStructure />} />
         <Route path="/requirements" element={<SubjectRequirements />} />
         <Route path="/combinations" element={<CombinationRules />} />
         <Route path="/timetable" element={<TimetableView />} />

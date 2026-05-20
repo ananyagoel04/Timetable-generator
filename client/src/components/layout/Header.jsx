@@ -11,6 +11,7 @@ const pageTitles = {
   '/classes': 'Class Management',
   '/subjects': 'Subject Management',
   '/rooms': 'Room Management',
+  '/periods': 'Period & Break Structure',
   '/requirements': 'Weekly Subject Periods',
   '/combinations': 'Combined Classes',
   '/rules': 'Rules & Preferences',
