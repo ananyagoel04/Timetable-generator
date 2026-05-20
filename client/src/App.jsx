@@ -19,6 +19,8 @@ import Substitutions from './pages/Substitutions';
 import AuditLogs from './pages/AuditLogs';
 import TeacherReplacements from './pages/TeacherReplacements';
 import PeriodStructure from './pages/PeriodStructure';
+import CustomRules from './pages/CustomRules';
+import Settings from './pages/Settings';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
@@ -61,10 +63,10 @@ function AppRoutes() {
         <Route path="/absences" element={<Absences />} />
         <Route path="/substitutions" element={<Substitutions />} />
         <Route path="/audit-logs" element={<AuditLogs />} />
-        <Route path="/rules" element={<PlaceholderPage title="Rules & Preferences" desc="Custom rule engine — Coming soon" />} />
+        <Route path="/rules" element={<CustomRules />} />
         <Route path="/replacements" element={<TeacherReplacements />} />
         <Route path="/reports" element={<PlaceholderPage title="Reports" desc="PDF & Excel export — Coming soon" />} />
-        <Route path="/settings" element={<PlaceholderPage title="Settings" desc="System configuration — Coming soon" />} />
+        <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
