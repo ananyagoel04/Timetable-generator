@@ -113,3 +113,19 @@
 @media (max-width: 768px) {
   .ml-\[250px\] { margin-left: 0 !important; }
 }
+
+/* Print styles for reports */
+@media print {
+  body { background: white !important; color: black !important; }
+  aside, nav, header, .no-print, button { display: none !important; }
+  main { margin: 0 !important; padding: 0 !important; }
+  .glass-card { background: white !important; border: 1px solid #ddd !important; backdrop-filter: none !important; box-shadow: none !important; }
+  .print-table { width: 100% !important; border-collapse: collapse !important; }
+  .print-table th, .print-table td { border: 1px solid #ccc !important; padding: 6px 8px !important; font-size: 11px !important; color: black !important; }
+  .print-table th { background: #f3f4f6 !important; font-weight: 600 !important; }
+  .page-title { color: black !important; font-size: 18px !important; }
+}
+
+/* Scrollbar thin variant */
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }

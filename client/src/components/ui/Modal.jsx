@@ -1,22 +1,46 @@
+import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 export default function Modal({ isOpen, onClose, title, children, size = 'md' }) {
-  if (!isOpen) return null;
-  const sizeClass = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' }[size] || 'max-w-lg';
+  // ESC key handler
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [isOpen, onClose]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className={`relative w-full ${sizeClass} glass-card p-6 animate-scale-in max-h-[85vh] overflow-y-auto`}
-        onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
+  // Body scroll lock
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const sizeClass = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl', full: 'max-w-6xl' }[size] || 'max-w-lg';
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in" />
+      <div
+        className={`relative w-full ${sizeClass} glass-card p-6 animate-scale-in max-h-[85vh] flex flex-col`}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-5 shrink-0">
           <h3 className="text-lg font-semibold text-white">{title}</h3>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-dark-700 text-dark-400 hover:text-white transition-colors">
             <X size={18} />
           </button>
         </div>
-        {children}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {children}
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

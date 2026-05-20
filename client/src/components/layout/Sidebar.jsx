@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BookOpen, School, DoorOpen, Calendar, Clock,
@@ -7,6 +7,7 @@ import {
   Menu, X, LogOut, ClipboardList, BarChart3
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useSidebar } from '../../context/SidebarContext';
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -36,20 +37,12 @@ const navItems = [
 ];
 
 export default function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const { collapsed, setCollapsed, mobileOpen, setMobileOpen, sidebarWidth } = useSidebar();
   const location = useLocation();
   const { user, logout } = useAuth();
 
   // Close mobile drawer on route change
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
-
-  // Close mobile drawer on resize
-  useEffect(() => {
-    const handler = () => { if (window.innerWidth >= 768) setMobileOpen(false); };
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
-  }, []);
 
   const sidebarContent = (isMobile = false) => (
     <>
@@ -70,7 +63,7 @@ export default function Sidebar() {
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5 scrollbar-thin">
         {navItems.map((item, i) => {
           if (item.divider) {
             return <div key={i} className="pt-3 pb-1">
@@ -81,7 +74,7 @@ export default function Sidebar() {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
           return (
-            <NavLink key={item.path} to={item.path}
+            <NavLink key={item.path} to={item.path} title={collapsed && !isMobile ? item.label : undefined}
               className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-200 group
                 ${isActive
                   ? 'bg-primary-600/20 text-primary-400 border border-primary-500/30'
@@ -108,6 +101,18 @@ export default function Sidebar() {
           </div>
           <button onClick={logout} className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-dark-400 hover:text-red-400 hover:bg-red-500/10 transition-colors">
             <LogOut size={14} /> Sign Out
+          </button>
+        </div>
+      )}
+
+      {/* Collapsed user avatar */}
+      {user && collapsed && !isMobile && (
+        <div className="border-t border-dark-700/50 p-2 flex flex-col items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold" title={user.name}>
+            {user.name?.charAt(0) || 'A'}
+          </div>
+          <button onClick={logout} className="p-1.5 rounded-lg text-dark-500 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Sign Out">
+            <LogOut size={14} />
           </button>
         </div>
       )}
@@ -141,8 +146,10 @@ export default function Sidebar() {
       )}
 
       {/* Desktop sidebar */}
-      <aside className={`fixed left-0 top-0 h-screen z-40 hidden md:flex flex-col transition-all duration-300
-        ${collapsed ? 'w-[68px]' : 'w-[250px]'} bg-dark-900/95 backdrop-blur-xl border-r border-dark-700/50`}>
+      <aside
+        className="fixed left-0 top-0 h-screen z-40 hidden md:flex flex-col bg-dark-900/95 backdrop-blur-xl border-r border-dark-700/50 transition-all duration-300"
+        style={{ width: `${sidebarWidth}px` }}
+      >
         {sidebarContent(false)}
       </aside>
     </>

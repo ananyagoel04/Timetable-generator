@@ -2,6 +2,7 @@ const LessonBlock = require('../models/LessonBlock');
 const GeneratedTimetable = require('../models/GeneratedTimetable');
 const ConflictLog = require('../models/ConflictLog');
 const SchedulerEngine = require('../services/schedulerEngine');
+const TimetableEditor = require('../services/timetableEditor');
 const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
 
@@ -72,27 +73,32 @@ exports.swapBlocks = async (req, res, next) => {
     const blockB = await LessonBlock.findById(blockBId);
     if (!blockA || !blockB) return res.status(404).json({ success: false, error: 'Block not found' });
     if (blockA.isLocked || blockB.isLocked) return res.status(400).json({ success: false, error: 'Cannot swap locked blocks' });
-
-    // Swap day and periods
     const tmpDay = blockA.day; const tmpPeriods = [...blockA.periods];
     blockA.day = blockB.day; blockA.periods = blockB.periods;
     blockB.day = tmpDay; blockB.periods = tmpPeriods;
     await blockA.save(); await blockB.save();
-
     res.json({ success: true, data: { blockA, blockB } });
   } catch (err) { next(err); }
 };
 
 exports.lockBlock = async (req, res, next) => {
   try {
-    const block = await LessonBlock.findByIdAndUpdate(req.params.id, { isLocked: true }, { new: true });
+    const block = await LessonBlock.findById(req.params.id);
+    if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
+    block.isLocked = true;
+    block.editHistory.push({ action: 'lock', before: { isLocked: false }, after: { isLocked: true }, timestamp: new Date() });
+    await block.save();
     res.json({ success: true, data: block });
   } catch (err) { next(err); }
 };
 
 exports.unlockBlock = async (req, res, next) => {
   try {
-    const block = await LessonBlock.findByIdAndUpdate(req.params.id, { isLocked: false }, { new: true });
+    const block = await LessonBlock.findById(req.params.id);
+    if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
+    block.isLocked = false;
+    block.editHistory.push({ action: 'unlock', before: { isLocked: true }, after: { isLocked: false }, timestamp: new Date() });
+    await block.save();
     res.json({ success: true, data: block });
   } catch (err) { next(err); }
 };
@@ -109,7 +115,6 @@ exports.publishTimetable = async (req, res, next) => {
   try {
     const tt = await GeneratedTimetable.findById(req.params.timetableId);
     if (!tt) return res.status(404).json({ success: false, error: 'Timetable not found' });
-    // Archive others
     await GeneratedTimetable.updateMany({ school: tt.school, _id: { $ne: tt._id }, status: 'published' }, { status: 'archived' });
     tt.status = 'published'; tt.publishedAt = new Date(); tt.publishedBy = 'admin';
     await tt.save();
@@ -146,5 +151,60 @@ exports.getStats = async (req, res, next) => {
     }
 
     res.json({ success: true, data: { teachers, classes, subjects, rooms, requirements, combinationRules: combRules, pendingAbsences: absences, scheduledBlocks: blocks, conflicts, latestTimetable: timetables?.status || 'none' } });
+  } catch (err) { next(err); }
+};
+
+// --- Enhanced editing via TimetableEditor ---
+exports.moveBlock = async (req, res, next) => {
+  try {
+    const { day, period, reason } = req.body;
+    const block = await LessonBlock.findById(req.params.id);
+    if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
+    const editor = new TimetableEditor(block.timetable);
+    const result = await editor.moveBlock(req.params.id, day, period, req.body.userId, reason);
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+exports.validateMove = async (req, res, next) => {
+  try {
+    const { day, period } = req.body;
+    const block = await LessonBlock.findById(req.params.id);
+    if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
+    const editor = new TimetableEditor(block.timetable);
+    const result = await editor.validateMove(req.params.id, day, period);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+};
+
+exports.reassignTeacher = async (req, res, next) => {
+  try {
+    const { teacherId, reason } = req.body;
+    const block = await LessonBlock.findById(req.params.id);
+    if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
+    const editor = new TimetableEditor(block.timetable);
+    const result = await editor.reassignTeacher(req.params.id, teacherId, req.body.userId, reason);
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+exports.reassignRoom = async (req, res, next) => {
+  try {
+    const { roomId, reason } = req.body;
+    const block = await LessonBlock.findById(req.params.id);
+    if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
+    const editor = new TimetableEditor(block.timetable);
+    const result = await editor.reassignRoom(req.params.id, roomId, req.body.userId, reason);
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+exports.getEditHistory = async (req, res, next) => {
+  try {
+    const block = await LessonBlock.findById(req.params.id);
+    if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
+    const editor = new TimetableEditor(block.timetable);
+    const history = await editor.getEditHistory(req.params.id);
+    res.json({ success: true, data: history });
   } catch (err) { next(err); }
 };

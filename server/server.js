@@ -26,6 +26,7 @@ app.use('/api/timetable', require('./routes/timetable'));
 app.use('/api/absences', require('./routes/absences'));
 app.use('/api/substitutions', require('./routes/substitutions'));
 app.use('/api/audit-logs', require('./routes/auditLogs'));
+app.use('/api/reports', require('./routes/reports'));
 
 app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'TimeCraft Advanced API running', timestamp: new Date() });

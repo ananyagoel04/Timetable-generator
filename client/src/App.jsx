@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SidebarProvider } from './context/SidebarContext';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -21,6 +22,8 @@ import TeacherReplacements from './pages/TeacherReplacements';
 import PeriodStructure from './pages/PeriodStructure';
 import CustomRules from './pages/CustomRules';
 import Settings from './pages/Settings';
+import Reports from './pages/Reports';
+import PlatformAdmin from './pages/PlatformAdmin';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
@@ -65,7 +68,8 @@ function AppRoutes() {
         <Route path="/audit-logs" element={<AuditLogs />} />
         <Route path="/rules" element={<CustomRules />} />
         <Route path="/replacements" element={<TeacherReplacements />} />
-        <Route path="/reports" element={<PlaceholderPage title="Reports" desc="PDF & Excel export — Coming soon" />} />
+        <Route path="/reports" element={<Reports />} />
+        <Route path="/platform" element={<PlatformAdmin />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -88,12 +92,14 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Toaster position="top-right" toastOptions={{
-          style: { background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '12px' },
-          success: { iconTheme: { primary: '#10b981', secondary: '#1e293b' } },
-          error: { iconTheme: { primary: '#ef4444', secondary: '#1e293b' } },
-        }} />
-        <AppRoutes />
+        <SidebarProvider>
+          <Toaster position="top-right" toastOptions={{
+            style: { background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '12px' },
+            success: { iconTheme: { primary: '#10b981', secondary: '#1e293b' } },
+            error: { iconTheme: { primary: '#ef4444', secondary: '#1e293b' } },
+          }} />
+          <AppRoutes />
+        </SidebarProvider>
       </AuthProvider>
     </BrowserRouter>
   );

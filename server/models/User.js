@@ -7,7 +7,8 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true, select: false },
   role: {
     type: String,
-    enum: ['platform_owner', 'platform_support', 'school_owner', 'school_admin', 'principal',
+    enum: ['platform_owner', 'platform_support', 'platform_developer', 'platform_qa',
+           'deployment_manager', 'school_owner', 'school_admin', 'principal',
            'timetable_manager', 'teacher', 'office_staff', 'viewer'],
     default: 'school_admin'
   },
@@ -27,6 +28,18 @@ const userSchema = new mongoose.Schema({
   // Active context
   activeSchool: { type: mongoose.Schema.Types.ObjectId, ref: 'School' },
   activeSession: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession' },
+  // Platform-level support access
+  supportAccess: {
+    isImpersonating: { type: Boolean, default: false },
+    impersonatedSchool: { type: mongoose.Schema.Types.ObjectId, ref: 'School' },
+    impersonatedUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    impersonationExpiry: { type: Date },
+    accessReason: { type: String, trim: true }
+  },
+  platformPermissions: [{
+    type: String,
+    enum: ['impersonate_school', 'view_all_audit', 'manage_schools', 'debug_access', 'deploy', 'view_metrics']
+  }],
   isActive: { type: Boolean, default: true },
   lastLogin: { type: Date },
   refreshToken: { type: String, select: false }
