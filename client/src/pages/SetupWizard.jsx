@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, ChevronRight, School, Clock, Users, BookOpen, DoorOpen, FileText, Layers, Zap } from 'lucide-react';
+import { CheckCircle, ChevronRight, School, Clock, Users, BookOpen, DoorOpen, FileText, Layers, Zap, Database, Loader2 } from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 
@@ -60,9 +60,30 @@ export default function SetupWizard() {
     } catch (err) { toast.error(err.message); }
   };
 
+  const [seeding, setSeeding] = useState(false);
+
+  const handleSeedData = async () => {
+    if (!window.confirm('This will generate demo seed data (Classes 1-12, 2 sections, all streams, subjects, teachers, rooms, and requirements). Existing data may be overwritten. Continue?')) return;
+    setSeeding(true);
+    try {
+      const r = await api.post('/setup/seed');
+      const s = r.data?.summary;
+      toast.success(`Seeded: ${s?.classes} classes, ${s?.subjects} subjects, ${s?.teachers} teachers, ${s?.rooms} rooms, ${s?.requirements} requirements`);
+      window.location.reload();
+    } catch (err) { toast.error('Seed failed: ' + (err.response?.data?.error || err.message)); }
+    finally { setSeeding(false); }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div><h1 className="page-title">Setup Wizard</h1><p className="page-subtitle">Complete each step to set up your timetable system</p></div>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div><h1 className="page-title">Setup Wizard</h1><p className="page-subtitle">Complete each step to set up your timetable system</p></div>
+        <button onClick={handleSeedData} disabled={seeding}
+          className="btn-secondary flex items-center gap-2 text-sm">
+          {seeding ? <Loader2 className="animate-spin" size={15} /> : <Database size={15} />}
+          {seeding ? 'Generating...' : 'Seed Demo Data'}
+        </button>
+      </div>
 
       {/* Step Progress */}
       <div className="flex gap-1 overflow-x-auto pb-2">
@@ -73,7 +94,7 @@ export default function SetupWizard() {
           return (
             <button key={s.id} onClick={() => setStep(i)}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all shrink-0
-                ${active ? 'bg-primary-600/20 text-primary-400 border border-primary-500/30' : status === 'done' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-dark-800/50 text-dark-400 border border-dark-700/50 hover:bg-dark-800'}`}>
+                ${active ? 'bg-primary-600/20 text-primary-400 border border-primary-500/30' : status === 'done' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-white/50 dark:bg-dark-800/50 text-slate-500 dark:text-dark-400 border border-slate-300/50 dark:border-dark-700/50 hover:bg-slate-100 dark:hover:bg-dark-800'}`}>
               {status === 'done' && !active ? <CheckCircle size={14} /> : <Icon size={14} />}
               {s.label}
             </button>
@@ -85,31 +106,31 @@ export default function SetupWizard() {
       <div className="glass-card p-6">
         {step === 0 && (
           <form onSubmit={handleSchoolSave} className="space-y-4">
-            <h2 className="text-lg font-bold text-white mb-1">School Information</h2>
-            <p className="text-sm text-dark-400 mb-4">Configure your school's basic details and working days</p>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-dark-50 mb-1">School Information</h2>
+            <p className="text-sm text-slate-500 dark:text-dark-400 mb-4">Configure your school's basic details and working days</p>
             <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-xs text-dark-400 mb-1 block">School Name *</label><input name="name" defaultValue={school?.name} required className="input-field" /></div>
-              <div><label className="text-xs text-dark-400 mb-1 block">School Code *</label><input name="code" defaultValue={school?.code} required className="input-field" /></div>
+              <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">School Name *</label><input name="name" defaultValue={school?.name} required className="input-field" /></div>
+              <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">School Code *</label><input name="code" defaultValue={school?.code} required className="input-field" /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-xs text-dark-400 mb-1 block">Email</label><input name="email" defaultValue={school?.email} className="input-field" /></div>
-              <div><label className="text-xs text-dark-400 mb-1 block">Phone</label><input name="phone" defaultValue={school?.phone} className="input-field" /></div>
+              <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Email</label><input name="email" defaultValue={school?.email} className="input-field" /></div>
+              <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Phone</label><input name="phone" defaultValue={school?.phone} className="input-field" /></div>
             </div>
             <div>
-              <label className="text-xs text-dark-400 mb-2 block">Working Days</label>
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-2 block">Working Days</label>
               <div className="flex flex-wrap gap-2">
                 {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map(d => (
-                  <label key={d} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-800 border border-dark-700 cursor-pointer hover:border-primary-500/50 transition-colors">
+                  <label key={d} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-dark-800 border border-slate-300 dark:border-dark-700 cursor-pointer hover:border-primary-500/50 transition-colors">
                     <input type="checkbox" name="workingDays" value={d} defaultChecked={school?.settings?.workingDays?.includes(d)} className="w-3.5 h-3.5 rounded" />
-                    <span className="text-sm text-dark-300">{d.slice(0, 3)}</span>
+                    <span className="text-sm text-slate-600 dark:text-dark-300">{d.slice(0, 3)}</span>
                   </label>
                 ))}
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4">
-              <div><label className="text-xs text-dark-400 mb-1 block">Periods/Day</label><input name="defaultPeriodsPerDay" type="number" defaultValue={school?.settings?.defaultPeriodsPerDay || 8} className="input-field" /></div>
-              <div><label className="text-xs text-dark-400 mb-1 block">Break After Period</label><input name="defaultBreakPeriod" type="number" defaultValue={school?.settings?.defaultBreakPeriod || 4} className="input-field" /></div>
-              <div><label className="text-xs text-dark-400 mb-1 block">Max Continuous</label><input name="maxTeacherContinuousPeriods" type="number" defaultValue={school?.settings?.maxTeacherContinuousPeriods || 4} className="input-field" /></div>
+              <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Periods/Day</label><input name="defaultPeriodsPerDay" type="number" defaultValue={school?.settings?.defaultPeriodsPerDay || 8} className="input-field" /></div>
+              <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Break After Period</label><input name="defaultBreakPeriod" type="number" defaultValue={school?.settings?.defaultBreakPeriod || 4} className="input-field" /></div>
+              <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Max Continuous</label><input name="maxTeacherContinuousPeriods" type="number" defaultValue={school?.settings?.maxTeacherContinuousPeriods || 4} className="input-field" /></div>
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <button type="submit" className="btn-primary">Save School Settings</button>
@@ -120,20 +141,20 @@ export default function SetupWizard() {
 
         {step === 1 && (
           <div className="space-y-4">
-            <h2 className="text-lg font-bold text-white mb-1">Period & Break Structure</h2>
-            <p className="text-sm text-dark-400 mb-4">Define your school's daily period timings. Customize periods, breaks, and lunch.</p>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-dark-50 mb-1">Period & Break Structure</h2>
+            <p className="text-sm text-slate-500 dark:text-dark-400 mb-4">Define your school's daily period timings. Customize periods, breaks, and lunch.</p>
             {periods?.timeslots?.length > 0 ? (
               <div className="space-y-2">
                 {periods.timeslots.map((slot, i) => (
-                  <div key={i} className={`flex items-center gap-4 p-3 rounded-xl border ${slot.type === 'break' || slot.type === 'lunch' ? 'bg-amber-500/5 border-amber-500/20' : 'bg-dark-800/40 border-dark-700/50'}`}>
-                    <span className="w-8 h-8 rounded-lg bg-dark-700 flex items-center justify-center text-xs font-bold text-dark-300">{slot.slotNumber}</span>
-                    <div className="flex-1"><p className="text-sm font-medium text-white">{slot.label}</p><p className="text-[10px] text-dark-400">{slot.startTime} — {slot.endTime}</p></div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${slot.type === 'period' ? 'bg-primary-500/20 text-primary-400' : slot.type === 'break' ? 'bg-amber-500/20 text-amber-400' : slot.type === 'lunch' ? 'bg-orange-500/20 text-orange-400' : 'bg-dark-600 text-dark-300'}`}>{slot.type}</span>
-                    <span className={`text-[10px] ${slot.isSchedulable ? 'text-emerald-400' : 'text-dark-500'}`}>{slot.isSchedulable ? 'Schedulable' : 'Fixed'}</span>
+                  <div key={i} className={`flex items-center gap-4 p-3 rounded-xl border ${slot.type === 'break' || slot.type === 'lunch' ? 'bg-amber-500/5 border-amber-500/20' : 'bg-white/40 dark:bg-dark-800/40 border-slate-300/50 dark:border-dark-700/50'}`}>
+                    <span className="w-8 h-8 rounded-lg bg-slate-200 dark:bg-dark-700 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-dark-300">{slot.slotNumber}</span>
+                    <div className="flex-1"><p className="text-sm font-medium text-slate-900 dark:text-dark-50">{slot.label}</p><p className="text-[10px] text-slate-500 dark:text-dark-400">{slot.startTime} — {slot.endTime}</p></div>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${slot.type === 'period' ? 'bg-primary-500/20 text-primary-400' : slot.type === 'break' ? 'bg-amber-500/20 text-amber-400' : slot.type === 'lunch' ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-300 dark:bg-dark-600 text-slate-600 dark:text-dark-300'}`}>{slot.type}</span>
+                    <span className={`text-[10px] ${slot.isSchedulable ? 'text-emerald-400' : 'text-slate-400 dark:text-dark-500'}`}>{slot.isSchedulable ? 'Schedulable' : 'Fixed'}</span>
                   </div>
                 ))}
               </div>
-            ) : <p className="text-dark-400">Default period structure will be created automatically.</p>}
+            ) : <p className="text-slate-500 dark:text-dark-400">Default period structure will be created automatically.</p>}
             <div className="flex justify-between pt-2">
               <button onClick={() => setStep(0)} className="btn-secondary">← Back</button>
               <button onClick={() => setStep(2)} className="btn-primary flex items-center gap-1">Next <ChevronRight size={14} /></button>
@@ -150,8 +171,8 @@ export default function SetupWizard() {
               { i: 5, name: 'Rooms', count: counts.rooms, link: '/rooms' },
             ].filter(x => x.i === step).map(x => (
               <div key={x.i}>
-                <h2 className="text-lg font-bold text-white mb-2">{x.name}</h2>
-                <p className="text-dark-400 mb-4">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-dark-50 mb-2">{x.name}</h2>
+                <p className="text-slate-500 dark:text-dark-400 mb-4">
                   {x.count > 0 ? `✅ ${x.count} ${x.name.toLowerCase()} configured.` : `No ${x.name.toLowerCase()} yet. Add them from the management page.`}
                 </p>
                 <div className="flex justify-center gap-3">
@@ -168,8 +189,8 @@ export default function SetupWizard() {
 
         {step === 6 && (
           <div className="text-center py-8 space-y-4">
-            <h2 className="text-lg font-bold text-white mb-2">Weekly Subject Periods</h2>
-            <p className="text-dark-400 mb-4">{counts.reqs > 0 ? `✅ ${counts.reqs} subject-class assignments configured.` : 'Define how many periods each subject needs per week for each class.'}</p>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-dark-50 mb-2">Weekly Subject Periods</h2>
+            <p className="text-slate-500 dark:text-dark-400 mb-4">{counts.reqs > 0 ? `✅ ${counts.reqs} subject-class assignments configured.` : 'Define how many periods each subject needs per week for each class.'}</p>
             <a href="/requirements" className="btn-primary">Manage Weekly Loads</a>
             <div className="flex justify-between pt-4">
               <button onClick={() => setStep(5)} className="btn-secondary">← Back</button>
@@ -180,8 +201,8 @@ export default function SetupWizard() {
 
         {step === 7 && (
           <div className="text-center py-8 space-y-4">
-            <h2 className="text-lg font-bold text-white mb-2">Combined Classes</h2>
-            <p className="text-dark-400 mb-4">{counts.combos > 0 ? `✅ ${counts.combos} combination rules configured.` : 'Optional: Set up shared subject rules for combined classes.'}</p>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-dark-50 mb-2">Combined Classes</h2>
+            <p className="text-slate-500 dark:text-dark-400 mb-4">{counts.combos > 0 ? `✅ ${counts.combos} combination rules configured.` : 'Optional: Set up shared subject rules for combined classes.'}</p>
             <a href="/combinations" className="btn-primary">Manage Combination Rules</a>
             <div className="flex justify-between pt-4">
               <button onClick={() => setStep(6)} className="btn-secondary">← Back</button>
@@ -193,10 +214,10 @@ export default function SetupWizard() {
         {step === 8 && (
           <div className="text-center py-12 space-y-4">
             <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-2xl shadow-emerald-500/30 mb-4">
-              <Zap size={36} className="text-white" />
+              <Zap size={36} className="text-slate-900 dark:text-dark-50" />
             </div>
-            <h2 className="text-xl font-bold text-white">Ready to Generate!</h2>
-            <p className="text-dark-400 max-w-md mx-auto">All setup steps are complete. Head to the Generator to create your timetable automatically.</p>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-dark-50">Ready to Generate!</h2>
+            <p className="text-slate-500 dark:text-dark-400 max-w-md mx-auto">All setup steps are complete. Head to the Generator to create your timetable automatically.</p>
             <a href="/generator" className="btn-primary inline-flex items-center gap-2 px-8 py-3 text-lg"><Zap size={20} /> Generate Timetable</a>
             <div className="flex justify-center pt-4">
               <button onClick={() => setStep(7)} className="btn-secondary">← Back</button>

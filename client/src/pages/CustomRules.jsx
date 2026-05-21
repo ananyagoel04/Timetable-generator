@@ -102,11 +102,11 @@ export default function CustomRules() {
 
       {/* Rule Templates */}
       <div className="glass-card p-4">
-        <p className="text-xs font-semibold text-dark-400 mb-3">Quick Add Templates</p>
+        <p className="text-xs font-semibold text-slate-500 dark:text-dark-400 mb-3">Quick Add Templates</p>
         <div className="flex flex-wrap gap-2">
           {ruleTypes.map(rt => (
             <button key={rt.value} onClick={() => { setForm(f => ({ ...f, type: rt.value, name: rt.label })); setModalOpen(true); }}
-              className={`text-xs px-3 py-1.5 rounded-lg border border-dark-600/50 ${categoryColors[rt.category] || 'bg-dark-800 text-dark-300'} hover:opacity-80 transition-all`}>
+              className={`text-xs px-3 py-1.5 rounded-lg border border-slate-400/50 dark:border-dark-600/50 ${categoryColors[rt.category] || 'bg-white dark:bg-dark-800 text-slate-600 dark:text-dark-300'} hover:opacity-80 transition-all`}>
               {rt.label}
             </button>
           ))}
@@ -114,10 +114,10 @@ export default function CustomRules() {
       </div>
 
       {/* Active Rules */}
-      {loading ? <p className="text-center py-12 text-dark-400">Loading...</p> : rules.length === 0 ? (
+      {loading ? <p className="text-center py-12 text-slate-500 dark:text-dark-400">Loading...</p> : rules.length === 0 ? (
         <div className="glass-card p-12 text-center">
-          <Shield size={48} className="mx-auto text-dark-600 mb-3" />
-          <p className="text-dark-400">No custom rules yet. Add rules to fine-tune timetable generation.</p>
+          <Shield size={48} className="mx-auto text-slate-400 dark:text-dark-600 mb-3" />
+          <p className="text-slate-500 dark:text-dark-400">No custom rules yet. Add rules to fine-tune timetable generation.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -128,25 +128,25 @@ export default function CustomRules() {
             return (
               <div key={rule._id} className={`glass-card p-4 flex items-center gap-4 transition-all ${rule.isActive ? '' : 'opacity-50'}`}>
                 <button onClick={() => toggleRule(rule._id, rule.isActive)} className="shrink-0">
-                  {rule.isActive ? <ToggleRight size={28} className="text-emerald-400" /> : <ToggleLeft size={28} className="text-dark-500" />}
+                  {rule.isActive ? <ToggleRight size={28} className="text-emerald-400" /> : <ToggleLeft size={28} className="text-slate-400 dark:text-dark-500" />}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <p className="font-medium text-white text-sm truncate">{rule.name}</p>
+                    <p className="font-medium text-slate-900 dark:text-dark-50 text-sm truncate">{rule.name}</p>
                     <span className={sev.color}><SevIcon size={10} className="inline mr-1" />{sev.label}</span>
                     {ruleInfo && <span className={`text-[9px] px-1.5 py-0.5 rounded ${categoryColors[ruleInfo.category]}`}>{ruleInfo.category}</span>}
                   </div>
-                  <p className="text-xs text-dark-500">{ruleInfo?.desc || rule.type}</p>
+                  <p className="text-xs text-slate-400 dark:text-dark-500">{ruleInfo?.desc || rule.type}</p>
                   {rule.config && (
                     <div className="flex gap-2 mt-1">
-                      {rule.config.subject && <span className="text-[10px] text-dark-400">Subject: {subjects.find(s => s._id === rule.config.subject)?.name || rule.config.subject}</span>}
-                      {rule.config.teacher && <span className="text-[10px] text-dark-400">Teacher: {teachers.find(t => t._id === rule.config.teacher)?.name || rule.config.teacher}</span>}
-                      {rule.config.day && <span className="text-[10px] text-dark-400">Day: {rule.config.day}</span>}
-                      {rule.config.value && <span className="text-[10px] text-dark-400">Value: {rule.config.value}</span>}
+                      {rule.config.subject && <span className="text-[10px] text-slate-500 dark:text-dark-400">Subject: {subjects.find(s => s._id === rule.config.subject)?.name || rule.config.subject}</span>}
+                      {rule.config.teacher && <span className="text-[10px] text-slate-500 dark:text-dark-400">Teacher: {teachers.find(t => t._id === rule.config.teacher)?.name || rule.config.teacher}</span>}
+                      {rule.config.day && <span className="text-[10px] text-slate-500 dark:text-dark-400">Day: {rule.config.day}</span>}
+                      {rule.config.value && <span className="text-[10px] text-slate-500 dark:text-dark-400">Value: {rule.config.value}</span>}
                     </div>
                   )}
                 </div>
-                <button onClick={() => deleteRule(rule._id)} className="p-2 rounded-lg hover:bg-red-500/20 text-dark-500 hover:text-red-400 transition-colors shrink-0"><Trash2 size={16} /></button>
+                <button onClick={() => deleteRule(rule._id)} className="p-2 rounded-lg hover:bg-red-500/20 text-slate-400 dark:text-dark-500 hover:text-red-400 transition-colors shrink-0"><Trash2 size={16} /></button>
               </div>
             );
           })}
@@ -155,37 +155,37 @@ export default function CustomRules() {
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Add Custom Rule" size="md">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div><label className="text-xs text-dark-400 mb-1 block">Rule Name</label>
+          <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Rule Name</label>
             <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input-field" placeholder="e.g., Max 2 Maths per day" />
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-xs text-dark-400 mb-1 block">Rule Type</label>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Rule Type</label>
               <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} className="select-field">
                 {ruleTypes.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </div>
-            <div><label className="text-xs text-dark-400 mb-1 block">Severity</label>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Severity</label>
               <select value={form.severity} onChange={e => setForm(f => ({ ...f, severity: e.target.value }))} className="select-field">
                 <option value="hard">Hard (must obey)</option><option value="soft">Soft (try to obey)</option><option value="preference">Preference (nice to have)</option>
               </select>
             </div>
           </div>
-          {needsSubject && <div><label className="text-xs text-dark-400 mb-1 block">Subject</label>
+          {needsSubject && <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Subject</label>
             <select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} className="select-field">
               <option value="">All subjects</option>{subjects.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
             </select>
           </div>}
-          {needsTeacher && <div><label className="text-xs text-dark-400 mb-1 block">Teacher</label>
+          {needsTeacher && <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Teacher</label>
             <select value={form.teacher} onChange={e => setForm(f => ({ ...f, teacher: e.target.value }))} className="select-field">
               <option value="">All teachers</option>{teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
             </select>
           </div>}
-          {needsDay && <div><label className="text-xs text-dark-400 mb-1 block">Day</label>
+          {needsDay && <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Day</label>
             <select value={form.day} onChange={e => setForm(f => ({ ...f, day: e.target.value }))} className="select-field">
               <option value="">Select day</option>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </div>}
-          {needsValue && <div><label className="text-xs text-dark-400 mb-1 block">Max Value</label>
+          {needsValue && <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Max Value</label>
             <input value={form.value} onChange={e => setForm(f => ({ ...f, value: +e.target.value }))} type="number" min="1" max="10" className="input-field" />
           </div>}
           <div className="flex justify-end gap-3 pt-2">

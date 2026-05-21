@@ -42,13 +42,13 @@ export default function ConflictCenter() {
         </div>
       </div>
 
-      {loading ? <div className="text-center py-16 text-dark-400">Scanning...</div> :
-       !selectedTT ? <div className="glass-card p-12 text-center text-dark-400">No timetable generated yet.</div> :
+      {loading ? <div className="text-center py-16 text-slate-500 dark:text-dark-400">Scanning...</div> :
+       !selectedTT ? <div className="glass-card p-12 text-center text-slate-500 dark:text-dark-400">No timetable generated yet.</div> :
        conflicts.length === 0 ? (
         <div className="glass-card p-12 text-center">
           <CheckCircle size={48} className="mx-auto text-emerald-400 mb-4" />
-          <h2 className="text-xl font-bold text-white mb-2">No Conflicts Found</h2>
-          <p className="text-dark-400">Your timetable is conflict-free!</p>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-dark-50 mb-2">No Conflicts Found</h2>
+          <p className="text-slate-500 dark:text-dark-400">Your timetable is conflict-free!</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -61,11 +61,11 @@ export default function ConflictCenter() {
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${cfg.bg}`}><Icon size={20} className={cfg.color} /></div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-white text-sm">{c.title || cfg.label}</h3>
+                      <h3 className="font-semibold text-slate-900 dark:text-dark-50 text-sm">{c.title || cfg.label}</h3>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full ${severityColors[c.severity] || 'badge-info'}`}>{c.severity}</span>
                     </div>
-                    <p className="text-sm text-dark-300">{c.message}</p>
-                    {c.day && <p className="text-xs text-dark-500 mt-1">{c.day} · Period {c.period}</p>}
+                    <p className="text-sm text-slate-600 dark:text-dark-300">{c.message}</p>
+                    {c.day && <p className="text-xs text-slate-400 dark:text-dark-500 mt-1">{c.day} · Period {c.period}</p>}
                     {c.suggestedFix && <p className="text-xs text-emerald-400/70 mt-1.5">💡 {c.suggestedFix}</p>}
                   </div>
                 </div>

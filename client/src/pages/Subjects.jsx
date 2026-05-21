@@ -110,7 +110,7 @@ export default function Subjects() {
       <div className="relative max-w-md">
         <Search
           size={16}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-500"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-500"
         />
         <input
           value={search}
@@ -121,7 +121,7 @@ export default function Subjects() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {loading ? (
-          <p className="text-dark-400 col-span-full text-center py-12">
+          <p className="text-slate-500 dark:text-dark-400 col-span-full text-center py-12">
             Loading...
           </p>
         ) : (
@@ -141,24 +141,24 @@ export default function Subjects() {
                 <div className="flex gap-1">
                   <button
                     onClick={() => handleEdit(s)}
-                    className="p-1 rounded-lg hover:bg-dark-700 text-dark-400 hover:text-white"
+                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-dark-700 text-slate-500 dark:text-dark-400 hover:text-slate-900 dark:hover:text-dark-50"
                   >
                     <Edit2 size={13} />
                   </button>
                   <button
                     onClick={() => handleDelete(s._id)}
-                    className="p-1 rounded-lg hover:bg-red-500/20 text-dark-400 hover:text-red-400"
+                    className="p-1 rounded-lg hover:bg-red-500/20 text-slate-500 dark:text-dark-400 hover:text-red-400"
                   >
                     <Trash2 size={13} />
                   </button>
                 </div>
               </div>
-              <h3 className="font-semibold text-white text-sm">{s.name}</h3>
-              <p className="text-[10px] text-dark-500">
+              <h3 className="font-semibold text-slate-900 dark:text-dark-50 text-sm">{s.name}</h3>
+              <p className="text-[10px] text-slate-400 dark:text-dark-500">
                 {s.code} · {s.defaultPeriodsPerWeek}/wk
               </p>
               <div className="flex flex-wrap gap-1 mt-2">
-                <span className="badge bg-dark-700 text-dark-300 border border-dark-600 text-[9px]">
+                <span className="badge bg-slate-200 dark:bg-dark-700 text-slate-600 dark:text-dark-300 border border-slate-400 dark:border-dark-600 text-[9px]">
                   {s.category}
                 </span>
                 {s.requiresLab && (
@@ -189,7 +189,7 @@ export default function Subjects() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-xs text-dark-400 mb-1 block">Name *</label>
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Name *</label>
               <input
                 value={form.name}
                 onChange={(e) =>
@@ -200,7 +200,7 @@ export default function Subjects() {
               />
             </div>
             <div>
-              <label className="text-xs text-dark-400 mb-1 block">Code *</label>
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Code *</label>
               <input
                 value={form.code}
                 onChange={(e) =>
@@ -213,7 +213,7 @@ export default function Subjects() {
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="text-xs text-dark-400 mb-1 block">Type</label>
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Type</label>
               <select
                 value={form.type}
                 onChange={(e) =>
@@ -231,7 +231,7 @@ export default function Subjects() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-dark-400 mb-1 block">
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">
                 Category
               </label>
               <select
@@ -248,7 +248,7 @@ export default function Subjects() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-dark-400 mb-1 block">
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">
                 Periods/Week
               </label>
               <input
@@ -266,14 +266,14 @@ export default function Subjects() {
           </div>
           <div className="flex flex-wrap gap-4">
             <div>
-              <label className="text-xs text-dark-400 mb-1 block">Color</label>
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Color</label>
               <input
                 value={form.color}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, color: e.target.value }))
                 }
                 type="color"
-                className="w-10 h-10 rounded-lg border border-dark-700 cursor-pointer"
+                className="w-10 h-10 rounded-lg border border-slate-300 dark:border-dark-700 cursor-pointer"
               />
             </div>
             <label className="flex items-center gap-2 pt-4">
@@ -285,7 +285,7 @@ export default function Subjects() {
                 }
                 className="w-4 h-4 rounded"
               />
-              <span className="text-sm text-dark-300">Requires Lab</span>
+              <span className="text-sm text-slate-600 dark:text-dark-300">Requires Lab</span>
             </label>
             <label className="flex items-center gap-2 pt-4">
               <input
@@ -296,7 +296,7 @@ export default function Subjects() {
                 }
                 className="w-4 h-4 rounded"
               />
-              <span className="text-sm text-dark-300">Prefer Morning</span>
+              <span className="text-sm text-slate-600 dark:text-dark-300">Prefer Morning</span>
             </label>
             <label className="flex items-center gap-2 pt-4">
               <input
@@ -307,7 +307,7 @@ export default function Subjects() {
                 }
                 className="w-4 h-4 rounded"
               />
-              <span className="text-sm text-dark-300">Prefer Afternoon</span>
+              <span className="text-sm text-slate-600 dark:text-dark-300">Prefer Afternoon</span>
             </label>
           </div>
           <div className="flex justify-end gap-3 pt-2">

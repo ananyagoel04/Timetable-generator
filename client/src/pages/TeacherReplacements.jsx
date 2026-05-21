@@ -75,19 +75,19 @@ export default function TeacherReplacements() {
             <div key={t._id} className="glass-card-hover p-5">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold" style={{ backgroundColor: t.color || '#6366f1' }}>{t.name.charAt(0)}</div>
-                  <div><p className="font-medium text-white text-sm">{t.name}</p><p className="text-[10px] text-dark-500">{t.department}</p></div>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-900 dark:text-dark-50 font-bold" style={{ backgroundColor: t.color || '#6366f1' }}>{t.name.charAt(0)}</div>
+                  <div><p className="font-medium text-slate-900 dark:text-dark-50 text-sm">{t.name}</p><p className="text-[10px] text-slate-400 dark:text-dark-500">{t.department}</p></div>
                 </div>
               </div>
               <div className="flex items-center gap-2 mb-3">
                 <span className="badge bg-primary-500/20 text-primary-400">{totalPeriods}/wk</span>
-                <span className="badge bg-dark-700 text-dark-300 border border-dark-600">{load.length} classes</span>
+                <span className="badge bg-slate-200 dark:bg-dark-700 text-slate-600 dark:text-dark-300 border border-slate-400 dark:border-dark-600">{load.length} classes</span>
               </div>
               <div className="flex flex-wrap gap-1 mb-3">
                 {t.capabilities?.slice(0, 4).map((c, i) => (
-                  <span key={i} className="text-[9px] px-1.5 py-0.5 bg-dark-800 rounded text-dark-400">{c.subject?.name || '?'}</span>
+                  <span key={i} className="text-[9px] px-1.5 py-0.5 bg-white dark:bg-dark-800 rounded text-slate-500 dark:text-dark-400">{c.subject?.name || '?'}</span>
                 ))}
-                {t.capabilities?.length > 4 && <span className="text-[9px] text-dark-500">+{t.capabilities.length - 4}</span>}
+                {t.capabilities?.length > 4 && <span className="text-[9px] text-slate-400 dark:text-dark-500">+{t.capabilities.length - 4}</span>}
               </div>
               <button onClick={() => startReplacement(t)} className="w-full btn-secondary text-xs py-1.5 flex items-center justify-center gap-1.5">
                 <Users size={13} /> Replace
@@ -100,20 +100,20 @@ export default function TeacherReplacements() {
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={`Replace ${oldTeacher?.name || ''}`} size="lg">
         {step === 1 && (
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold text-white">Step 1: Select assignments to transfer</h4>
+            <h4 className="text-sm font-semibold text-slate-900 dark:text-dark-50">Step 1: Select assignments to transfer</h4>
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {affected.map(r => (
-                <label key={r._id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${selected.includes(r._id) ? 'bg-primary-500/10 border-primary-500/30' : 'bg-dark-800/40 border-dark-700/50'}`}>
+                <label key={r._id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${selected.includes(r._id) ? 'bg-primary-500/10 border-primary-500/30' : 'bg-white/40 dark:bg-dark-800/40 border-slate-300/50 dark:border-dark-700/50'}`}>
                   <input type="checkbox" checked={selected.includes(r._id)} onChange={e => e.target.checked ? setSelected(p => [...p, r._id]) : setSelected(p => p.filter(x => x !== r._id))} className="w-4 h-4 rounded" />
-                  <div><span className="text-sm text-white">{r.subject?.name || '?'}</span><span className="text-dark-500 mx-1.5">·</span><span className="text-xs text-dark-400">{r.class?.name || '?'}</span></div>
-                  <span className="ml-auto badge bg-dark-700 text-dark-300 text-[10px]">{r.periodsPerWeek}/wk</span>
+                  <div><span className="text-sm text-slate-900 dark:text-dark-50">{r.subject?.name || '?'}</span><span className="text-slate-400 dark:text-dark-500 mx-1.5">·</span><span className="text-xs text-slate-500 dark:text-dark-400">{r.class?.name || '?'}</span></div>
+                  <span className="ml-auto badge bg-slate-200 dark:bg-dark-700 text-slate-600 dark:text-dark-300 text-[10px]">{r.periodsPerWeek}/wk</span>
                 </label>
               ))}
             </div>
-            {affected.length === 0 && <p className="text-dark-400 text-sm text-center py-4">No assignments found for this teacher.</p>}
+            {affected.length === 0 && <p className="text-slate-500 dark:text-dark-400 text-sm text-center py-4">No assignments found for this teacher.</p>}
             <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-xs text-dark-400 mb-1 block">Type</label><select value={replType} onChange={e => setReplType(e.target.value)} className="select-field"><option value="permanent">Permanent</option><option value="temporary">Temporary</option></select></div>
-              <div><label className="text-xs text-dark-400 mb-1 block">Effective Date</label><input value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} type="date" className="input-field" /></div>
+              <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Type</label><select value={replType} onChange={e => setReplType(e.target.value)} className="select-field"><option value="permanent">Permanent</option><option value="temporary">Temporary</option></select></div>
+              <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Effective Date</label><input value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} type="date" className="input-field" /></div>
             </div>
             <div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancel</button><button onClick={findSuggestions} disabled={selected.length === 0} className="btn-primary">Find Replacements →</button></div>
           </div>
@@ -121,17 +121,17 @@ export default function TeacherReplacements() {
 
         {step === 2 && (
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold text-white">Step 2: Choose replacement teacher</h4>
-            <p className="text-xs text-dark-400">Ranked by subject match and current workload</p>
+            <h4 className="text-sm font-semibold text-slate-900 dark:text-dark-50">Step 2: Choose replacement teacher</h4>
+            <p className="text-xs text-slate-500 dark:text-dark-400">Ranked by subject match and current workload</p>
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              {suggestions.length === 0 ? <p className="text-dark-400 text-center py-4">No capable teachers found.</p> : suggestions.map(s => (
-                <label key={s._id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${newTeacher === s._id ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-dark-800/40 border-dark-700/50'}`}>
+              {suggestions.length === 0 ? <p className="text-slate-500 dark:text-dark-400 text-center py-4">No capable teachers found.</p> : suggestions.map(s => (
+                <label key={s._id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${newTeacher === s._id ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/40 dark:bg-dark-800/40 border-slate-300/50 dark:border-dark-700/50'}`}>
                   <input type="radio" name="replacement" checked={newTeacher === s._id} onChange={() => setNewTeacher(s._id)} className="w-4 h-4" />
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: s.color || '#6366f1' }}>{s.name.charAt(0)}</div>
-                  <div className="flex-1"><p className="text-sm text-white">{s.name}</p><p className="text-[10px] text-dark-500">{s.department}</p></div>
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-900 dark:text-dark-50 text-xs font-bold" style={{ backgroundColor: s.color || '#6366f1' }}>{s.name.charAt(0)}</div>
+                  <div className="flex-1"><p className="text-sm text-slate-900 dark:text-dark-50">{s.name}</p><p className="text-[10px] text-slate-400 dark:text-dark-500">{s.department}</p></div>
                   <div className="text-right">
                     <span className={`badge text-[10px] ${s.matchPercent === 100 ? 'badge-success' : s.matchPercent >= 50 ? 'badge-warning' : 'badge-danger'}`}>{s.matchPercent}% match</span>
-                    <p className="text-[10px] text-dark-500 mt-0.5">{s.currentLoad}/wk load</p>
+                    <p className="text-[10px] text-slate-400 dark:text-dark-500 mt-0.5">{s.currentLoad}/wk load</p>
                   </div>
                 </label>
               ))}
@@ -142,19 +142,19 @@ export default function TeacherReplacements() {
 
         {step === 3 && (
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold text-white">Step 3: Review & Apply</h4>
-            <div className="bg-dark-800/60 rounded-xl p-4 space-y-2">
+            <h4 className="text-sm font-semibold text-slate-900 dark:text-dark-50">Step 3: Review & Apply</h4>
+            <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-4 space-y-2">
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-red-400">{oldTeacher?.name}</span>
-                <ArrowRight size={14} className="text-dark-500" />
+                <ArrowRight size={14} className="text-slate-400 dark:text-dark-500" />
                 <span className="text-emerald-400">{teachers.find(t => t._id === newTeacher)?.name}</span>
               </div>
-              <div className="text-xs text-dark-400">
+              <div className="text-xs text-slate-500 dark:text-dark-400">
                 <p>{selected.length} assignments · {replType} · Effective {effectiveDate}</p>
               </div>
               {affected.filter(r => selected.includes(r._id)).map(r => (
-                <div key={r._id} className="flex items-center gap-2 text-xs text-dark-300 pl-2 border-l-2 border-emerald-500/30">
-                  <span>{r.subject?.name}</span><span className="text-dark-600">·</span><span>{r.class?.name}</span><span className="text-dark-600">·</span><span>{r.periodsPerWeek}/wk</span>
+                <div key={r._id} className="flex items-center gap-2 text-xs text-slate-600 dark:text-dark-300 pl-2 border-l-2 border-emerald-500/30">
+                  <span>{r.subject?.name}</span><span className="text-slate-400 dark:text-dark-600">·</span><span>{r.class?.name}</span><span className="text-slate-400 dark:text-dark-600">·</span><span>{r.periodsPerWeek}/wk</span>
                 </div>
               ))}
             </div>

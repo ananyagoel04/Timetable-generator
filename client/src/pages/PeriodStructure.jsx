@@ -138,7 +138,7 @@ export default function PeriodStructure() {
   const totalMinutes = slots.reduce((sum, s) => sum + getDuration(s.startTime, s.endTime), 0);
   const teachingPeriods = slots.filter(s => s.isSchedulable).length;
 
-  if (loading) return <div className="text-center py-16 text-dark-400">Loading...</div>;
+  if (loading) return <div className="text-center py-16 text-slate-500 dark:text-dark-400">Loading...</div>;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -156,15 +156,15 @@ export default function PeriodStructure() {
           <div key={s._id} onClick={() => selectStructure(s)}
             className={`glass-card-hover p-4 cursor-pointer transition-all ${selected?._id === s._id ? 'ring-2 ring-primary-500/50 border-primary-500/30' : ''}`}>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-white truncate">{s.name}</p>
+              <p className="text-sm font-semibold text-slate-900 dark:text-dark-50 truncate">{s.name}</p>
               <span className={templateBadge[s.templateType] || 'badge'}>{s.templateType}</span>
             </div>
-            <p className="text-xs text-dark-500 mb-2">{s.timeslots?.length || 0} slots · {s.timeslots?.filter(t => t.isSchedulable).length || 0} teaching</p>
+            <p className="text-xs text-slate-400 dark:text-dark-500 mb-2">{s.timeslots?.length || 0} slots · {s.timeslots?.filter(t => t.isSchedulable).length || 0} teaching</p>
             <div className="flex items-center justify-between">
-              <span className={`text-[10px] px-2 py-0.5 rounded ${s.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : s.status === 'draft' ? 'bg-amber-500/20 text-amber-400' : 'bg-dark-700 text-dark-500'}`}>{s.status}</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded ${s.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : s.status === 'draft' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-200 dark:bg-dark-700 text-slate-400 dark:text-dark-500'}`}>{s.status}</span>
               <div className="flex gap-1">
-                <button onClick={e => { e.stopPropagation(); cloneStructure(s._id); }} className="p-1 rounded hover:bg-dark-700 text-dark-500 hover:text-white" title="Clone"><Copy size={13} /></button>
-                <button onClick={e => { e.stopPropagation(); archiveStructure(s._id); }} className="p-1 rounded hover:bg-red-500/20 text-dark-500 hover:text-red-400" title="Archive"><Archive size={13} /></button>
+                <button onClick={e => { e.stopPropagation(); cloneStructure(s._id); }} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-dark-700 text-slate-400 dark:text-dark-500 hover:text-slate-900 dark:hover:text-dark-50" title="Clone"><Copy size={13} /></button>
+                <button onClick={e => { e.stopPropagation(); archiveStructure(s._id); }} className="p-1 rounded hover:bg-red-500/20 text-slate-400 dark:text-dark-500 hover:text-red-400" title="Archive"><Archive size={13} /></button>
               </div>
             </div>
             {s.assignedTo?.classes?.length > 0 && (
@@ -178,22 +178,22 @@ export default function PeriodStructure() {
         {/* Assignment */}
         <div className="glass-card p-4 flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-white">Assigned Classes</p>
-            <p className="text-xs text-dark-400">{assignedClasses.length} class{assignedClasses.length !== 1 ? 'es' : ''} using this structure</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-dark-50">Assigned Classes</p>
+            <p className="text-xs text-slate-500 dark:text-dark-400">{assignedClasses.length} class{assignedClasses.length !== 1 ? 'es' : ''} using this structure</p>
           </div>
           <button onClick={() => setAssignModal(true)} className="btn-secondary text-sm"><Users size={14} className="inline mr-1" /> Manage</button>
         </div>
 
         {/* Visual Timeline */}
         <div className="glass-card p-4">
-          <p className="text-xs font-semibold text-dark-400 mb-3">Daily Timeline — {totalMinutes} min total · {teachingPeriods} teaching periods</p>
-          <div className="flex rounded-xl overflow-hidden h-10 bg-dark-800">
+          <p className="text-xs font-semibold text-slate-500 dark:text-dark-400 mb-3">Daily Timeline — {totalMinutes} min total · {teachingPeriods} teaching periods</p>
+          <div className="flex rounded-xl overflow-hidden h-10 bg-white dark:bg-dark-800">
             {slots.map((slot, i) => {
               const dur = getDuration(slot.startTime, slot.endTime);
               const pct = (dur / totalMinutes) * 100;
               const cfg = slotTypeConfig[slot.type] || slotTypeConfig.period;
               return (
-                <div key={i} className={`${cfg.bg} flex items-center justify-center border-r border-dark-700/30 text-[9px] font-medium ${cfg.color} overflow-hidden`}
+                <div key={i} className={`${cfg.bg} flex items-center justify-center border-r border-slate-300/30 dark:border-dark-700/30 text-[9px] font-medium ${cfg.color} overflow-hidden`}
                   style={{ width: `${pct}%` }} title={`${slot.label} (${slot.startTime}–${slot.endTime})`}>
                   {pct > 5 && slot.label.slice(0, 8)}
                 </div>
@@ -205,7 +205,7 @@ export default function PeriodStructure() {
         {/* Editable Slot List */}
         <div className="glass-card p-4 space-y-2">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-semibold text-dark-400">Slot Configuration</p>
+            <p className="text-xs font-semibold text-slate-500 dark:text-dark-400">Slot Configuration</p>
             <div className="flex gap-2">
               {Object.entries(slotTypeConfig).map(([type, cfg]) => {
                 const Icon = cfg.icon;
@@ -217,8 +217,8 @@ export default function PeriodStructure() {
             const cfg = slotTypeConfig[slot.type] || slotTypeConfig.period;
             const Icon = cfg.icon;
             return (
-              <div key={i} className="flex items-center gap-2 p-2 rounded-xl bg-dark-800/40 border border-dark-700/30">
-                <GripVertical size={14} className="text-dark-600 shrink-0 cursor-grab" />
+              <div key={i} className="flex items-center gap-2 p-2 rounded-xl bg-white/40 dark:bg-dark-800/40 border border-slate-300/30 dark:border-dark-700/30">
+                <GripVertical size={14} className="text-slate-400 dark:text-dark-600 shrink-0 cursor-grab" />
                 <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${cfg.bg} shrink-0`}><Icon size={12} className={cfg.color} /></span>
                 <input value={slot.label} onChange={e => updateSlot(i, 'label', e.target.value)} className="input-field text-xs py-1.5 flex-1 min-w-[100px]" />
                 <select value={slot.type} onChange={e => updateSlot(i, 'type', e.target.value)} className="select-field text-xs py-1.5 w-24">
@@ -226,10 +226,10 @@ export default function PeriodStructure() {
                 </select>
                 <input value={slot.startTime} onChange={e => updateSlot(i, 'startTime', e.target.value)} type="time" className="input-field text-xs py-1.5 w-24" />
                 <input value={slot.endTime} onChange={e => updateSlot(i, 'endTime', e.target.value)} type="time" className="input-field text-xs py-1.5 w-24" />
-                <label className="flex items-center gap-1 text-[10px] text-dark-400 shrink-0">
+                <label className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-dark-400 shrink-0">
                   <input type="checkbox" checked={slot.isSchedulable} onChange={e => updateSlot(i, 'isSchedulable', e.target.checked)} className="rounded" /> Teach
                 </label>
-                <button onClick={() => removeSlot(i)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-dark-500 hover:text-red-400 shrink-0"><Trash2 size={14} /></button>
+                <button onClick={() => removeSlot(i)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-slate-400 dark:text-dark-500 hover:text-red-400 shrink-0"><Trash2 size={14} /></button>
               </div>
             );
           })}
@@ -238,16 +238,16 @@ export default function PeriodStructure() {
         {/* Saturday Config */}
         <div className="glass-card p-4">
           <label className="flex items-center justify-between cursor-pointer">
-            <div><p className="text-sm font-medium text-white">Separate Saturday Schedule</p>
-              <p className="text-xs text-dark-400">Define different timeslots for Saturday</p></div>
+            <div><p className="text-sm font-medium text-slate-900 dark:text-dark-50">Separate Saturday Schedule</p>
+              <p className="text-xs text-slate-500 dark:text-dark-400">Define different timeslots for Saturday</p></div>
             <div className="relative">
               <input type="checkbox" checked={saturdayEnabled} onChange={e => setSaturdayEnabled(e.target.checked)} className="sr-only peer" />
-              <div className="w-11 h-6 bg-dark-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+              <div className="w-11 h-6 bg-slate-300 dark:bg-dark-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
             </div>
           </label>
           {saturdayEnabled && (
-            <div className="mt-3 pt-3 border-t border-dark-700/30">
-              <p className="text-xs text-dark-400 mb-2">{saturdaySlots.length} Saturday slots</p>
+            <div className="mt-3 pt-3 border-t border-slate-300/30 dark:border-dark-700/30">
+              <p className="text-xs text-slate-500 dark:text-dark-400 mb-2">{saturdaySlots.length} Saturday slots</p>
               <button onClick={() => setSaturdaySlots([...saturdaySlots, { label: `Sat P${saturdaySlots.length + 1}`, slotNumber: saturdaySlots.length + 1, startTime: '08:00', endTime: '08:40', type: 'period', isSchedulable: true }])}
                 className="btn-secondary text-xs"><Plus size={12} className="inline mr-1" /> Add Saturday Slot</button>
             </div>
@@ -258,13 +258,13 @@ export default function PeriodStructure() {
       {/* Create Modal */}
       <Modal isOpen={createModal} onClose={() => setCreateModal(false)} title="Create Period Structure">
         <form onSubmit={createStructure} className="space-y-4">
-          <div><label className="text-xs text-dark-400 mb-1 block">Name</label>
+          <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Name</label>
             <input value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} className="input-field" placeholder="e.g., Junior School Schedule" required /></div>
-          <div><label className="text-xs text-dark-400 mb-1 block">Template Type</label>
+          <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Template Type</label>
             <select value={createForm.templateType} onChange={e => setCreateForm(f => ({ ...f, templateType: e.target.value }))} className="select-field">
               {Object.keys(templateBadge).map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
             </select></div>
-          <div><label className="text-xs text-dark-400 mb-1 block">Description</label>
+          <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Description</label>
             <textarea value={createForm.description} onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))} className="input-field" rows={2} /></div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={() => setCreateModal(false)} className="btn-secondary">Cancel</button>
@@ -277,10 +277,10 @@ export default function PeriodStructure() {
       <Modal isOpen={assignModal} onClose={() => setAssignModal(false)} title="Assign Classes" size="lg">
         <div className="space-y-2 mb-4 max-h-[50vh] overflow-y-auto">
           {classes.map(c => (
-            <label key={c._id} className="flex items-center gap-3 p-2 rounded-xl hover:bg-dark-800/40 cursor-pointer">
-              <input type="checkbox" checked={assignedClasses.includes(c._id)} onChange={() => toggleClassAssign(c._id)} className="rounded border-dark-600" />
-              <span className="text-sm text-dark-200">{c.name}</span>
-              <span className="text-[10px] text-dark-500 ml-auto">{c.stream !== 'none' ? c.stream : ''} · {c.studentCount} students</span>
+            <label key={c._id} className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-100/40 dark:hover:bg-dark-800/40 cursor-pointer">
+              <input type="checkbox" checked={assignedClasses.includes(c._id)} onChange={() => toggleClassAssign(c._id)} className="rounded border-slate-400 dark:border-dark-600" />
+              <span className="text-sm text-slate-700 dark:text-dark-200">{c.name}</span>
+              <span className="text-[10px] text-slate-400 dark:text-dark-500 ml-auto">{c.stream !== 'none' ? c.stream : ''} · {c.studentCount} students</span>
             </label>
           ))}
         </div>

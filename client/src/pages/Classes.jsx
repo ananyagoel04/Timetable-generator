@@ -33,20 +33,20 @@ export default function Classes() {
         <div><h1 className="page-title">Classes</h1><p className="page-subtitle">{classes.length} classes</p></div>
         <button onClick={() => { setEditing(null); setForm({ grade: 9, section: 'A', stream: 'none', studentCount: 35, classTeacher: '' }); setModalOpen(true); }} className="btn-primary flex items-center gap-2"><Plus size={18} /> Add Class</button>
       </div>
-      <div className="relative max-w-md"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-500" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="input-field pl-9" /></div>
+      <div className="relative max-w-md"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-500" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="input-field pl-9" /></div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {loading ? <p className="text-dark-400 col-span-full text-center py-12">Loading...</p> : filtered.map(c => (
+        {loading ? <p className="text-slate-500 dark:text-dark-400 col-span-full text-center py-12">Loading...</p> : filtered.map(c => (
           <div key={c._id} className="glass-card-hover p-5">
             <div className="flex items-start justify-between mb-3">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-lg shadow-lg">{c.grade}</div>
-              <div className="flex gap-1"><button onClick={() => handleEdit(c)} className="p-1.5 rounded-lg hover:bg-dark-700 text-dark-400 hover:text-white"><Edit2 size={14} /></button><button onClick={() => handleDelete(c._id)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-dark-400 hover:text-red-400"><Trash2 size={14} /></button></div>
+              <div className="flex gap-1"><button onClick={() => handleEdit(c)} className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-dark-700 text-slate-500 dark:text-dark-400 hover:text-slate-900 dark:hover:text-dark-50"><Edit2 size={14} /></button><button onClick={() => handleDelete(c._id)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-slate-500 dark:text-dark-400 hover:text-red-400"><Trash2 size={14} /></button></div>
             </div>
-            <h3 className="font-semibold text-white">{c.name}</h3>
-            <p className="text-xs text-dark-400 mt-1">{c.studentCount} students</p>
-            {c.classTeacher && <p className="text-xs text-dark-500 mt-1">CT: {c.classTeacher.name}</p>}
+            <h3 className="font-semibold text-slate-900 dark:text-dark-50">{c.name}</h3>
+            <p className="text-xs text-slate-500 dark:text-dark-400 mt-1">{c.studentCount} students</p>
+            {c.classTeacher && <p className="text-xs text-slate-400 dark:text-dark-500 mt-1">CT: {c.classTeacher.name}</p>}
             <div className="flex gap-2 mt-2">
               {c.stream !== 'none' && <span className="badge bg-purple-500/20 text-purple-400 text-[10px]">{c.stream}</span>}
-              {c.studentGroups?.map((g, i) => <span key={i} className="badge bg-dark-700 text-dark-300 text-[10px]">{g.name}</span>)}
+              {c.studentGroups?.map((g, i) => <span key={i} className="badge bg-slate-200 dark:bg-dark-700 text-slate-600 dark:text-dark-300 text-[10px]">{g.name}</span>)}
             </div>
           </div>
         ))}
@@ -54,13 +54,13 @@ export default function Classes() {
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Class' : 'Add Class'}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
-            <div><label className="text-xs text-dark-400 mb-1 block">Grade *</label><input value={form.grade} onChange={e => setForm(f => ({...f, grade: +e.target.value}))} type="number" min={1} max={12} required className="input-field" /></div>
-            <div><label className="text-xs text-dark-400 mb-1 block">Section *</label><input value={form.section} onChange={e => setForm(f => ({...f, section: e.target.value.toUpperCase()}))} required className="input-field" maxLength={2} /></div>
-            <div><label className="text-xs text-dark-400 mb-1 block">Students</label><input value={form.studentCount} onChange={e => setForm(f => ({...f, studentCount: +e.target.value}))} type="number" className="input-field" /></div>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Grade *</label><input value={form.grade} onChange={e => setForm(f => ({...f, grade: +e.target.value}))} type="number" min={1} max={12} required className="input-field" /></div>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Section *</label><input value={form.section} onChange={e => setForm(f => ({...f, section: e.target.value.toUpperCase()}))} required className="input-field" maxLength={2} /></div>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Students</label><input value={form.studentCount} onChange={e => setForm(f => ({...f, studentCount: +e.target.value}))} type="number" className="input-field" /></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-xs text-dark-400 mb-1 block">Stream</label><select value={form.stream} onChange={e => setForm(f => ({...f, stream: e.target.value}))} className="select-field"><option value="none">None</option><option value="science">Science</option><option value="commerce">Commerce</option><option value="humanities">Humanities</option></select></div>
-            <div><label className="text-xs text-dark-400 mb-1 block">Class Teacher</label><select value={form.classTeacher} onChange={e => setForm(f => ({...f, classTeacher: e.target.value}))} className="select-field"><option value="">None</option>{teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}</select></div>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Stream</label><select value={form.stream} onChange={e => setForm(f => ({...f, stream: e.target.value}))} className="select-field"><option value="none">None</option><option value="science">Science</option><option value="commerce">Commerce</option><option value="humanities">Humanities</option></select></div>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Class Teacher</label><select value={form.classTeacher} onChange={e => setForm(f => ({...f, classTeacher: e.target.value}))} className="select-field"><option value="">None</option>{teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}</select></div>
           </div>
           <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancel</button><button type="submit" className="btn-primary">{editing ? 'Update' : 'Create'}</button></div>
         </form>

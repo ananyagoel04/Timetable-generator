@@ -72,16 +72,16 @@ export default function Substitutions() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="text-center py-12 text-dark-400">Loading...</td></tr>
+              <tr><td colSpan={7} className="text-center py-12 text-slate-500 dark:text-dark-400">Loading...</td></tr>
             ) : subs.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-12 text-dark-400">No substitutions</td></tr>
+              <tr><td colSpan={7} className="text-center py-12 text-slate-500 dark:text-dark-400">No substitutions</td></tr>
             ) : subs.map(s => (
               <tr key={s._id} className="table-row">
-                <td className="px-5 py-4 text-dark-300 text-sm">{new Date(s.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
-                <td className="px-5 py-4 text-dark-300">P{s.period}</td>
-                <td className="px-5 py-4 text-white font-medium">{s.originalTeacher?.name || '—'}</td>
+                <td className="px-5 py-4 text-slate-600 dark:text-dark-300 text-sm">{new Date(s.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
+                <td className="px-5 py-4 text-slate-600 dark:text-dark-300">P{s.period}</td>
+                <td className="px-5 py-4 text-slate-900 dark:text-dark-50 font-medium">{s.originalTeacher?.name || '—'}</td>
                 <td className="px-5 py-4 text-emerald-400 font-medium">{s.substituteTeacher?.name || '—'}</td>
-                <td className="px-5 py-4 text-dark-300">{s.class?.name || '—'}</td>
+                <td className="px-5 py-4 text-slate-600 dark:text-dark-300">{s.class?.name || '—'}</td>
                 <td className="px-5 py-4"><span className={statusColors[s.status]}>{s.status}</span></td>
                 <td className="px-5 py-4 text-right">
                   {s.status === 'pending' && (
@@ -100,23 +100,23 @@ export default function Substitutions() {
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="New Substitution" size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-xs text-dark-400 mb-1 block">Date *</label>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Date *</label>
               <input value={form.date} onChange={e => setForm(f => ({...f, date: e.target.value}))} type="date" required className="input-field" />
             </div>
-            <div><label className="text-xs text-dark-400 mb-1 block">Period *</label>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Period *</label>
               <select value={form.period} onChange={e => { const p = +e.target.value; setForm(f => ({...f, period: p})); if (form.date) { const d = new Date(form.date); const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']; checkAvailable(days[d.getDay()], p); }}} className="select-field">
                 {[1,2,3,5,6,7,8].map(p => <option key={p} value={p}>Period {p}</option>)}
               </select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-xs text-dark-400 mb-1 block">Absent Teacher *</label>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Absent Teacher *</label>
               <select value={form.originalTeacher} onChange={e => setForm(f => ({...f, originalTeacher: e.target.value}))} required className="select-field">
                 <option value="">Select</option>
                 {teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
               </select>
             </div>
-            <div><label className="text-xs text-dark-400 mb-1 block">Substitute Teacher *</label>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Substitute Teacher *</label>
               <select value={form.substituteTeacher} onChange={e => setForm(f => ({...f, substituteTeacher: e.target.value}))} required className="select-field">
                 <option value="">Select</option>
                 {available.length > 0 ? available.map(t => <option key={t._id} value={t._id}>✓ {t.name} (free)</option>) : teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
@@ -125,20 +125,20 @@ export default function Substitutions() {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-xs text-dark-400 mb-1 block">Class *</label>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Class *</label>
               <select value={form.class} onChange={e => setForm(f => ({...f, class: e.target.value}))} required className="select-field">
                 <option value="">Select</option>
                 {classes.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
               </select>
             </div>
-            <div><label className="text-xs text-dark-400 mb-1 block">Subject</label>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Subject</label>
               <select value={form.subject} onChange={e => setForm(f => ({...f, subject: e.target.value}))} className="select-field">
                 <option value="">Any</option>
                 {subjects.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
               </select>
             </div>
           </div>
-          <div><label className="text-xs text-dark-400 mb-1 block">Notes</label>
+          <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Notes</label>
             <input value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} className="input-field" placeholder="Optional notes" />
           </div>
           <div className="flex justify-end gap-3 pt-2">

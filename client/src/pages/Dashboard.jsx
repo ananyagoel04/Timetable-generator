@@ -35,35 +35,35 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Welcome Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-primary-600 via-purple-600 to-indigo-600 p-6 shadow-2xl shadow-primary-500/20">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-primary-600 via-purple-600 to-indigo-600 p-5 sm:p-6 shadow-2xl shadow-primary-500/20">
         <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/5 rounded-full blur-2xl" />
         <div className="absolute right-10 bottom-0 w-24 h-24 bg-white/5 rounded-full blur-xl" />
-        <div className="flex items-center gap-4 relative z-10">
-          <div className="w-14 h-14 bg-white/15 rounded-2xl flex items-center justify-center backdrop-blur-sm shadow-lg">
-            <Calendar size={28} className="text-white" />
+        <div className="flex items-center gap-3 sm:gap-4 relative z-10">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/15 rounded-2xl flex items-center justify-center backdrop-blur-sm shadow-lg shrink-0">
+            <Calendar size={24} className="text-white sm:w-7 sm:h-7" />
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-white">Welcome to TimeCraft</h1>
-            <p className="text-white/70 text-sm">Advanced Automated School Timetable System — {s.latestTimetable === 'published' ? '✅ Timetable Published' : s.latestTimetable === 'draft' ? '📋 Draft Ready for Review' : '⚡ Ready to Generate'}</p>
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-white truncate">Welcome to TimeCraft</h1>
+            <p className="text-white/70 text-xs sm:text-sm truncate">Advanced Automated School Timetable System — {s.latestTimetable === 'published' ? '✅ Published' : s.latestTimetable === 'draft' ? '📋 Draft Ready' : '⚡ Ready to Generate'}</p>
           </div>
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {statCards.map(card => {
           const Icon = card.icon;
           return (
-            <Link to={card.link} key={card.label} className="glass-card-hover p-4 group">
+            <Link to={card.link} key={card.label} className="glass-card-hover p-4 group min-h-[60px] touch-manipulation">
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${card.color} flex items-center justify-center shadow-lg`}>
                   <Icon size={18} className="text-white" />
                 </div>
                 <div>
-                  <p className={`text-xl font-bold ${card.warn ? 'text-amber-400' : 'text-white'}`}>
+                  <p className={`text-xl font-bold ${card.warn ? 'text-amber-400' : 'text-slate-900 dark:text-dark-50'}`}>
                     {loading ? '—' : (card.value ?? 0)}
                   </p>
-                  <p className="text-[11px] text-dark-400">{card.label}</p>
+                  <p className="text-[11px] text-slate-500 dark:text-dark-400">{card.label}</p>
                 </div>
               </div>
             </Link>
@@ -73,18 +73,18 @@ export default function Dashboard() {
 
       {/* Quick Actions */}
       <div>
-        <h2 className="text-sm font-semibold text-dark-300 mb-3 uppercase tracking-wider">Quick Actions</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <h2 className="text-sm font-semibold text-slate-600 dark:text-dark-300 mb-3 uppercase tracking-wider">Quick Actions</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 overflow-x-auto">
           {quickActions.map(action => {
             const Icon = action.icon;
             return (
-              <Link to={action.link} key={action.label} className="glass-card-hover p-5 group flex items-start gap-4">
+              <Link to={action.link} key={action.label} className="glass-card-hover p-4 sm:p-5 group flex items-start gap-3 sm:gap-4 touch-manipulation min-h-[72px]">
                 <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.color} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform shrink-0`}>
-                  <Icon size={22} className="text-white" />
+                  <Icon size={22} className="text-slate-900 dark:text-dark-50" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-white group-hover:text-primary-400 transition-colors">{action.label}</h3>
-                  <p className="text-xs text-dark-400 mt-0.5">{action.desc}</p>
+                  <h3 className="font-semibold text-slate-900 dark:text-dark-50 group-hover:text-primary-400 transition-colors">{action.label}</h3>
+                  <p className="text-xs text-slate-500 dark:text-dark-400 mt-0.5">{action.desc}</p>
                 </div>
               </Link>
             );
@@ -95,23 +95,23 @@ export default function Dashboard() {
       {/* Status Summary */}
       {stats && (
         <div className="glass-card p-5">
-          <h3 className="text-sm font-semibold text-dark-300 mb-3 uppercase tracking-wider">System Status</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-            <div className="bg-dark-800/60 rounded-xl p-3">
+          <h3 className="text-sm font-semibold text-slate-600 dark:text-dark-300 mb-3 uppercase tracking-wider">System Status</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-center">
+            <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-3">
               <p className="text-lg font-bold text-emerald-400">{s.requirements || 0}</p>
-              <p className="text-[10px] text-dark-400">Subject-Class Assignments</p>
+              <p className="text-[10px] text-slate-500 dark:text-dark-400">Subject-Class Assignments</p>
             </div>
-            <div className="bg-dark-800/60 rounded-xl p-3">
+            <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-3">
               <p className="text-lg font-bold text-blue-400">{s.combinationRules || 0}</p>
-              <p className="text-[10px] text-dark-400">Combination Rules</p>
+              <p className="text-[10px] text-slate-500 dark:text-dark-400">Combination Rules</p>
             </div>
-            <div className="bg-dark-800/60 rounded-xl p-3">
+            <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-3">
               <p className="text-lg font-bold text-purple-400">{s.scheduledBlocks || 0}</p>
-              <p className="text-[10px] text-dark-400">Lesson Blocks</p>
+              <p className="text-[10px] text-slate-500 dark:text-dark-400">Lesson Blocks</p>
             </div>
-            <div className="bg-dark-800/60 rounded-xl p-3">
+            <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-3">
               <p className={`text-lg font-bold ${s.conflicts > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{s.conflicts || 0}</p>
-              <p className="text-[10px] text-dark-400">Active Conflicts</p>
+              <p className="text-[10px] text-slate-500 dark:text-dark-400">Active Conflicts</p>
             </div>
           </div>
         </div>
