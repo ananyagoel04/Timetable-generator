@@ -31,8 +31,8 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' })
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5 shrink-0">
-          <h3 className="text-lg font-semibold text-white">{title}</h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-dark-700 text-dark-400 hover:text-white transition-colors">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-dark-50">{title}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-dark-700 text-slate-500 dark:text-dark-400 hover:text-slate-900 dark:hover:text-dark-50 transition-colors">
             <X size={18} />
           </button>
         </div>

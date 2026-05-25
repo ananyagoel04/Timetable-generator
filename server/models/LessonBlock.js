@@ -32,6 +32,9 @@ const lessonBlockSchema = new mongoose.Schema({
   warnings: [{ type: String }],
   // Linked blocks (for double periods, parallel split groups)
   linkedBlockId: { type: mongoose.Schema.Types.ObjectId, ref: 'LessonBlock' },
+  // Consecutive period grouping
+  consecutiveGroupId: { type: mongoose.Schema.Types.ObjectId },
+  consecutivePosition: { type: Number },
   // Edit history for post-generation modifications
   editHistory: [{
     action: { type: String, required: true }, // 'move', 'swap', 'reassign_teacher', 'reassign_room', 'lock', 'unlock'

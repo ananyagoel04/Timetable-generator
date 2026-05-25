@@ -1,17 +1,11 @@
 const Teacher = require('../models/Teacher');
-const School = require('../models/School');
-const AcademicSession = require('../models/AcademicSession');
-
-const getScope = async () => {
-  const school = await School.findOne();
-  const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
-  return { school: school?._id, session: session?._id };
-};
 
 exports.getTeachers = async (req, res, next) => {
   try {
-    const scope = await getScope();
-    const teachers = await Teacher.find({ school: scope.school, session: scope.session })
+    if (!req.schoolId) return res.status(400).json({ success: false, error: 'School context required' });
+    const filter = { school: req.schoolId };
+    if (req.sessionId) filter.session = req.sessionId;
+    const teachers = await Teacher.find(filter)
       .populate('capabilities.subject').sort({ name: 1 });
     res.json({ success: true, count: teachers.length, data: teachers });
   } catch (err) { next(err); }
@@ -19,7 +13,8 @@ exports.getTeachers = async (req, res, next) => {
 
 exports.getTeacher = async (req, res, next) => {
   try {
-    const teacher = await Teacher.findById(req.params.id).populate('capabilities.subject');
+    const teacher = await Teacher.findOne({ _id: req.params.id, school: req.schoolId })
+      .populate('capabilities.subject');
     if (!teacher) return res.status(404).json({ success: false, error: 'Teacher not found' });
     res.json({ success: true, data: teacher });
   } catch (err) { next(err); }
@@ -27,15 +22,23 @@ exports.getTeacher = async (req, res, next) => {
 
 exports.createTeacher = async (req, res, next) => {
   try {
-    const scope = await getScope();
-    const teacher = await Teacher.create({ ...req.body, ...scope });
+    if (!req.schoolId) return res.status(400).json({ success: false, error: 'School context required' });
+    const teacher = await Teacher.create({
+      ...req.body,
+      school: req.schoolId,
+      session: req.sessionId || req.body.session
+    });
     res.status(201).json({ success: true, data: teacher });
   } catch (err) { next(err); }
 };
 
 exports.updateTeacher = async (req, res, next) => {
   try {
-    const teacher = await Teacher.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const teacher = await Teacher.findOneAndUpdate(
+      { _id: req.params.id, school: req.schoolId },
+      req.body,
+      { new: true, runValidators: true }
+    );
     if (!teacher) return res.status(404).json({ success: false, error: 'Teacher not found' });
     res.json({ success: true, data: teacher });
   } catch (err) { next(err); }
@@ -43,7 +46,8 @@ exports.updateTeacher = async (req, res, next) => {
 
 exports.deleteTeacher = async (req, res, next) => {
   try {
-    await Teacher.findByIdAndDelete(req.params.id);
+    const result = await Teacher.findOneAndDelete({ _id: req.params.id, school: req.schoolId });
+    if (!result) return res.status(404).json({ success: false, error: 'Teacher not found' });
     res.json({ success: true, data: {} });
   } catch (err) { next(err); }
 };

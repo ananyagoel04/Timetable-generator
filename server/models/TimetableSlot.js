@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const timetableSlotSchema = new mongoose.Schema({
   class: { type: mongoose.Schema.Types.ObjectId, ref: 'Class', required: true },
   day: { type: String, enum: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'], required: true },
-  period: { type: Number, required: true, min: 1, max: 8 },
+  period: { type: Number, required: true, min: 1, max: 15 },
   subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject' },
   teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'Teacher' },
   room: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },

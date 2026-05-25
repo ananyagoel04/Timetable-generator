@@ -20,4 +20,6 @@ const subjectCombinationRuleSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
+subjectCombinationRuleSchema.index({ school: 1, session: 1, isActive: 1 });
+
 module.exports = mongoose.model('SubjectCombinationRule', subjectCombinationRuleSchema);

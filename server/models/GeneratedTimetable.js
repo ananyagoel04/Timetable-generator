@@ -28,4 +28,6 @@ const generatedTimetableSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
+generatedTimetableSchema.index({ school: 1, session: 1, status: 1, createdAt: -1 });
+
 module.exports = mongoose.model('GeneratedTimetable', generatedTimetableSchema);

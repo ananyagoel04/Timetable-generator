@@ -4,9 +4,9 @@ const classSchema = new mongoose.Schema({
   school: { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
   session: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession', required: true },
   name: { type: String, required: true, trim: true }, // "10-A"
-  grade: { type: Number, required: true, min: 1, max: 12 },
+  grade: { type: Number, required: true, min: -2, max: 12 }, // -2=Nursery, -1=LKG, 0=UKG, 1-12=Standard
   section: { type: String, required: true, uppercase: true, trim: true },
-  stream: { type: String, enum: ['none', 'science', 'commerce', 'humanities', 'general'], default: 'none' },
+  stream: { type: String, enum: ['none', 'science', 'commerce', 'humanities', 'general', 'vocational', 'arts'], default: 'none' },
   studentGroups: [{
     name: { type: String, trim: true },        // "Bio Group", "Maths Group"
     code: { type: String, uppercase: true },    // "BIO", "MATH"
@@ -22,13 +22,16 @@ const classSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 classSchema.pre('validate', function(next) {
-  if (this.grade && this.section) {
+  if (this.grade !== undefined && this.section) {
+    const gradeLabels = { '-2': 'Nursery', '-1': 'LKG', '0': 'UKG' };
+    const gradeStr = gradeLabels[this.grade] || String(this.grade);
     const streamSuffix = this.stream !== 'none' ? ` (${this.stream})` : '';
-    this.name = `${this.grade}-${this.section}${streamSuffix}`;
+    this.name = `${gradeStr}-${this.section}${streamSuffix}`;
   }
   // Auto-compute level from grade
-  if (this.grade && !this.level) {
-    if (this.grade <= 5) this.level = 'junior';
+  if (this.grade !== undefined && !this.level) {
+    if (this.grade <= 0) this.level = 'pre_primary';
+    else if (this.grade <= 5) this.level = 'junior';
     else if (this.grade <= 8) this.level = 'middle';
     else this.level = 'senior';
   }

@@ -1,235 +1,468 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 const connectDB = require('../config/db');
 
+// Models
 const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
-const PeriodStructure = require('../models/PeriodStructure');
-const Subject = require('../models/Subject');
+const User = require('../models/User');
 const Teacher = require('../models/Teacher');
 const Class = require('../models/Class');
+const Subject = require('../models/Subject');
 const Room = require('../models/Room');
+const PeriodStructure = require('../models/PeriodStructure');
 const SubjectRequirement = require('../models/SubjectRequirement');
 const SubjectCombinationRule = require('../models/SubjectCombinationRule');
 const ReservedPeriodRule = require('../models/ReservedPeriodRule');
-const LessonBlock = require('../models/LessonBlock');
-const GeneratedTimetable = require('../models/GeneratedTimetable');
-const ConflictLog = require('../models/ConflictLog');
-const Absence = require('../models/Absence');
-const DailyAdjustment = require('../models/DailyAdjustment');
-const Substitution = require('../models/Substitution');
-const TeacherReplacement = require('../models/TeacherReplacement');
-const CustomRule = require('../models/CustomRule');
-const User = require('../models/User');
-const AuditLog = require('../models/AuditLog');
+const CanTeach = require('../models/CanTeach');
 
-const seed = async () => {
+async function seedData() {
   await connectDB();
-  console.log('🗑️  Clearing all data...');
-  await Promise.all([
-    School.deleteMany({}), AcademicSession.deleteMany({}), PeriodStructure.deleteMany({}),
-    Subject.deleteMany({}), Teacher.deleteMany({}), Class.deleteMany({}), Room.deleteMany({}),
-    SubjectRequirement.deleteMany({}), SubjectCombinationRule.deleteMany({}),
-    ReservedPeriodRule.deleteMany({}), LessonBlock.deleteMany({}),
-    GeneratedTimetable.deleteMany({}), ConflictLog.deleteMany({}),
-    Absence.deleteMany({}), DailyAdjustment.deleteMany({}), Substitution.deleteMany({}),
-    TeacherReplacement.deleteMany({}), CustomRule.deleteMany({}),
-    User.deleteMany({}), AuditLog.deleteMany({})
-  ]);
+  console.log('🌱 Starting comprehensive K-12 seed...');
 
-  // 1. School
+  // Clear existing
+  const models = [School, AcademicSession, User, Teacher, Class, Subject, Room, PeriodStructure,
+    SubjectRequirement, SubjectCombinationRule, ReservedPeriodRule, CanTeach];
+  for (const M of models) await M.deleteMany({});
+
+  // ═══ 1. SCHOOL ═══
   const school = await School.create({
-    name: 'Delhi Public School', code: 'DPS001',
-    address: '123 Education Lane, New Delhi', phone: '011-26543210', email: 'admin@dps.edu',
+    name: 'Delhi Public School — Model Campus',
+    code: 'DPS-MODEL',
+    address: '12 Academic Road, New Delhi',
+    phone: '+91-11-26863456',
+    email: 'admin@dpsmodel.edu.in',
+    status: 'active',
     settings: {
-      defaultPeriodsPerDay: 8, defaultBreakPeriod: 4,
-      workingDays: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
-      allowSaturdayActivities: true, maxTeacherContinuousPeriods: 4, maxSameSubjectPerDay: 2,
-      classTeacherFirstPeriodPreference: true, activitiesPreferLaterPeriods: true, mathSciencePreferMorning: true
+      workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      defaultPeriodsPerDay: 8,
+      defaultBreakPeriod: 5,
+      classTeacherFirstPeriodPreference: true
     }
   });
-  console.log('✅ School created');
 
-  // 2. Academic Session
+  // ═══ 2. SESSION ═══
   const session = await AcademicSession.create({
     school: school._id, name: '2025-26',
     startDate: new Date('2025-04-01'), endDate: new Date('2026-03-31'),
     isCurrent: true, status: 'active'
   });
 
-  // 3. Period Structure
-  await PeriodStructure.create({
-    school: school._id, session: session._id, name: 'Default',
-    workingDays: school.settings.workingDays,
+  // ═══ 3. USERS ═══
+  const hashedPw = await bcrypt.hash('admin123', 12);
+  await User.create([
+    { name: 'Platform Admin', email: 'platform@dpsmodel.edu.in', password: hashedPw, role: 'platform_developer', schools: [{ school: school._id, role: 'school_owner', permissions: ['view_timetable', 'generate_timetable', 'edit_setup', 'manage_teachers', 'manage_rules', 'approve_substitutions', 'publish_timetable', 'view_audit', 'manage_users', 'manage_school', 'export_reports', 'edit_timetable', 'manage_absences', 'manage_replacements'], isActive: true }], activeSchool: school._id, activeSession: session._id, isActive: true },
+    { name: 'Dr. Ranjit Kumar', email: 'principal@dpsmodel.edu.in', password: hashedPw, role: 'principal', schools: [{ school: school._id, role: 'school_owner', permissions: ['view_timetable', 'generate_timetable', 'edit_setup', 'manage_teachers', 'manage_rules', 'approve_substitutions', 'publish_timetable', 'view_audit', 'manage_users', 'manage_school', 'export_reports', 'edit_timetable', 'manage_absences', 'manage_replacements'], isActive: true }], activeSchool: school._id, activeSession: session._id, isActive: true },
+    { name: 'Mrs. Priya Sharma', email: 'timetable@dpsmodel.edu.in', password: hashedPw, role: 'timetable_manager', schools: [{ school: school._id, role: 'school_admin', permissions: ['view_timetable', 'generate_timetable', 'edit_setup', 'manage_teachers', 'manage_rules', 'approve_substitutions', 'publish_timetable', 'view_audit', 'export_reports', 'edit_timetable', 'manage_absences', 'manage_replacements'], isActive: true }], activeSchool: school._id, activeSession: session._id, isActive: true },
+    { name: 'Mr. Anil Gupta', email: 'teacher@dpsmodel.edu.in', password: hashedPw, role: 'teacher', schools: [{ school: school._id, role: 'teacher', permissions: ['view_timetable', 'manage_absences'], isActive: true }], activeSchool: school._id, activeSession: session._id, isActive: true },
+    { name: 'Parent Viewer', email: 'viewer@dpsmodel.edu.in', password: hashedPw, role: 'viewer', schools: [{ school: school._id, role: 'viewer', permissions: ['view_timetable'], isActive: true }], activeSchool: school._id, activeSession: session._id, isActive: true }
+  ]);
+
+  // ═══ 4. SUBJECTS ═══
+  const subjectData = [
+    { name: 'English', code: 'ENG', type: 'academic', color: '#3B82F6', preferMorning: true },
+    { name: 'Hindi', code: 'HIN', type: 'academic', color: '#F59E0B', preferMorning: true },
+    { name: 'Mathematics', code: 'MAT', type: 'academic', color: '#EF4444', preferMorning: true, maxPerDay: 2 },
+    { name: 'Science', code: 'SCI', type: 'academic', color: '#10B981', preferMorning: true },
+    { name: 'Physics', code: 'PHY', type: 'academic', color: '#6366F1', requiresLab: true, preferMorning: true },
+    { name: 'Chemistry', code: 'CHM', type: 'academic', color: '#8B5CF6', requiresLab: true, preferMorning: true },
+    { name: 'Biology', code: 'BIO', type: 'academic', color: '#14B8A6', requiresLab: true, preferMorning: true },
+    { name: 'Social Science', code: 'SST', type: 'academic', color: '#F97316' },
+    { name: 'History', code: 'HIS', type: 'academic', color: '#A855F7' },
+    { name: 'Geography', code: 'GEO', type: 'academic', color: '#0EA5E9' },
+    { name: 'Economics', code: 'ECO', type: 'academic', color: '#22C55E' },
+    { name: 'Commerce', code: 'COM', type: 'academic', color: '#D946EF' },
+    { name: 'Accountancy', code: 'ACC', type: 'academic', color: '#F43F5E' },
+    { name: 'Business Studies', code: 'BST', type: 'academic', color: '#EC4899' },
+    { name: 'Political Science', code: 'POL', type: 'academic', color: '#64748B' },
+    { name: 'Computer Science', code: 'CS', type: 'academic', color: '#0891B2', requiresLab: true },
+    { name: 'Environmental Studies', code: 'EVS', type: 'academic', color: '#84CC16' },
+    { name: 'Sanskrit', code: 'SKT', type: 'academic', color: '#EA580C' },
+    { name: 'Physical Education', code: 'PE', type: 'physical', color: '#059669', preferAfternoon: true },
+    { name: 'Art & Craft', code: 'ART', type: 'co_curricular', color: '#DB2777' },
+    { name: 'Music', code: 'MUS', type: 'co_curricular', color: '#7C3AED' },
+    { name: 'Dance', code: 'DNC', type: 'co_curricular', color: '#C026D3', preferAfternoon: true },
+    { name: 'Moral Science', code: 'MS', type: 'co_curricular', color: '#94A3B8' },
+    { name: 'General Knowledge', code: 'GK', type: 'co_curricular', color: '#475569' },
+    { name: 'Library', code: 'LIB', type: 'activity', color: '#78716C' },
+  ];
+  const subjects = {};
+  for (const s of subjectData) {
+    const created = await Subject.create({ ...s, school: school._id, session: session._id });
+    subjects[s.code] = created;
+  }
+
+  // ═══ 5. ROOMS ═══
+  const roomData = [];
+  for (let i = 1; i <= 20; i++) roomData.push({ name: `Room ${100 + i}`, roomNumber: `${100 + i}`, type: 'classroom', capacity: 45, floor: Math.ceil(i / 5), school: school._id });
+  roomData.push({ name: 'Physics Lab', roomNumber: 'PL1', type: 'lab', capacity: 40, floor: 2, school: school._id });
+  roomData.push({ name: 'Chemistry Lab', roomNumber: 'CL1', type: 'lab', capacity: 40, floor: 2, school: school._id });
+  roomData.push({ name: 'Biology Lab', roomNumber: 'BL1', type: 'lab', capacity: 40, floor: 2, school: school._id });
+  roomData.push({ name: 'Computer Lab', roomNumber: 'CMP1', type: 'lab', capacity: 35, floor: 3, school: school._id });
+  roomData.push({ name: 'Activity Hall', roomNumber: 'AH1', type: 'hall', capacity: 200, floor: 0, school: school._id });
+  roomData.push({ name: 'Music Room', roomNumber: 'MR1', type: 'special', capacity: 40, floor: 1, school: school._id });
+  roomData.push({ name: 'Art Room', roomNumber: 'AR1', type: 'special', capacity: 40, floor: 1, school: school._id });
+  roomData.push({ name: 'Library', roomNumber: 'LIB1', type: 'special', capacity: 60, floor: 1, school: school._id });
+  roomData.push({ name: 'Sports Ground', roomNumber: 'SG1', type: 'playground', capacity: 300, floor: 0, school: school._id });
+  const rooms = await Room.insertMany(roomData);
+
+  // ═══ 6. TEACHERS (45 teachers) ═══
+  const teacherDefs = [
+    { name: 'Mrs. Anjali Verma', shortName: 'AVR', department: 'English', subjects: ['ENG'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mr. Suresh Nair', shortName: 'SNR', department: 'English', subjects: ['ENG'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Kavita Singh', shortName: 'KSG', department: 'English', subjects: ['ENG'], maxPerDay: 6, maxPerWeek: 28 },
+    { name: 'Mrs. Geeta Rao', shortName: 'GRO', department: 'Hindi', subjects: ['HIN'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mr. Ramesh Pandey', shortName: 'RPD', department: 'Hindi', subjects: ['HIN'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Sunita Joshi', shortName: 'SJH', department: 'Hindi', subjects: ['HIN', 'SKT'], maxPerDay: 6, maxPerWeek: 28 },
+    { name: 'Mr. Rajendra Kumar', shortName: 'RKM', department: 'Mathematics', subjects: ['MAT'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Deepa Mathur', shortName: 'DMT', department: 'Mathematics', subjects: ['MAT'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mr. Arun Saxena', shortName: 'ASX', department: 'Mathematics', subjects: ['MAT'], maxPerDay: 6, maxPerWeek: 28 },
+    { name: 'Mrs. Meera Iyer', shortName: 'MIY', department: 'Mathematics', subjects: ['MAT'], maxPerDay: 6, maxPerWeek: 28 },
+    { name: 'Dr. Vivek Tiwari', shortName: 'VTW', department: 'Physics', subjects: ['PHY', 'SCI'], maxPerDay: 5, maxPerWeek: 28 },
+    { name: 'Mr. Sanjay Dubey', shortName: 'SDB', department: 'Physics', subjects: ['PHY', 'SCI'], maxPerDay: 5, maxPerWeek: 28 },
+    { name: 'Dr. Rekha Srivastava', shortName: 'RSV', department: 'Chemistry', subjects: ['CHM', 'SCI'], maxPerDay: 5, maxPerWeek: 28 },
+    { name: 'Mr. Pankaj Mishra', shortName: 'PMH', department: 'Chemistry', subjects: ['CHM', 'SCI'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Dr. Smita Gupta', shortName: 'SGP', department: 'Biology', subjects: ['BIO', 'SCI', 'EVS'], maxPerDay: 5, maxPerWeek: 28 },
+    { name: 'Mrs. Nisha Kapoor', shortName: 'NKP', department: 'Biology', subjects: ['BIO', 'EVS'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mr. Amit Sharma', shortName: 'ASH', department: 'Social Science', subjects: ['SST', 'HIS', 'GEO'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Pooja Bhatt', shortName: 'PBT', department: 'Social Science', subjects: ['SST', 'HIS', 'POL'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mr. Vikram Chauhan', shortName: 'VCH', department: 'Social Science', subjects: ['SST', 'GEO', 'ECO'], maxPerDay: 6, maxPerWeek: 28 },
+    { name: 'Mrs. Ritu Malhotra', shortName: 'RML', department: 'Economics', subjects: ['ECO', 'BST'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mr. Dinesh Agarwal', shortName: 'DAG', department: 'Commerce', subjects: ['ACC', 'BST', 'COM'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mrs. Swati Jain', shortName: 'SJN', department: 'Commerce', subjects: ['ACC', 'COM', 'ECO'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mr. Rohit Kapoor', shortName: 'RKP', department: 'Computer Science', subjects: ['CS'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mrs. Neha Gupta', shortName: 'NGP', department: 'Computer Science', subjects: ['CS'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mr. Vikas Rawat', shortName: 'VRW', department: 'Sanskrit', subjects: ['SKT'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mrs. Anita Devi', shortName: 'ADV', department: 'Political Science', subjects: ['POL', 'HIS'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mr. Sunil Yadav', shortName: 'SYD', department: 'Physical Education', subjects: ['PE'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mr. Lalit Tandon', shortName: 'LTN', department: 'Physical Education', subjects: ['PE', 'DNC'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Meenakshi Sood', shortName: 'MSD', department: 'Art', subjects: ['ART'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mr. Prateek Vohra', shortName: 'PVH', department: 'Music', subjects: ['MUS'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mrs. Riya Choudhary', shortName: 'RCH', department: 'Dance', subjects: ['DNC'], maxPerDay: 5, maxPerWeek: 26 },
+    { name: 'Mrs. Kamla Devi', shortName: 'KDV', department: 'Moral Science', subjects: ['MS', 'GK'], maxPerDay: 5, maxPerWeek: 26 },
+    // Additional teachers for primary/pre-primary
+    { name: 'Mrs. Sheela Gupta', shortName: 'SHG', department: 'Pre-Primary', subjects: ['ENG', 'HIN', 'MAT', 'EVS', 'ART', 'MUS'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Lalita Menon', shortName: 'LMN', department: 'Pre-Primary', subjects: ['ENG', 'HIN', 'MAT', 'EVS', 'ART', 'MUS'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Alka Patel', shortName: 'APT', department: 'Pre-Primary', subjects: ['ENG', 'HIN', 'MAT', 'EVS', 'ART', 'MUS'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Rani Kumari', shortName: 'RKI', department: 'Primary', subjects: ['ENG', 'HIN', 'MAT', 'EVS', 'GK', 'MS'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Suman Devi', shortName: 'SDV', department: 'Primary', subjects: ['ENG', 'HIN', 'MAT', 'EVS', 'GK', 'MS'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Padma Singh', shortName: 'PSG', department: 'Primary', subjects: ['ENG', 'HIN', 'MAT', 'SCI', 'SST'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mr. Naveen Reddy', shortName: 'NRD', department: 'Primary', subjects: ['ENG', 'MAT', 'SCI', 'PE'], maxPerDay: 6, maxPerWeek: 30 },
+    { name: 'Mrs. Uma Shankar', shortName: 'USK', department: 'Science', subjects: ['SCI', 'EVS'], maxPerDay: 6, maxPerWeek: 28 },
+    { name: 'Mr. Deepak Rawat', shortName: 'DRW', department: 'Library', subjects: ['LIB'], maxPerDay: 6, maxPerWeek: 30 },
+  ];
+
+  const teachers = {};
+  for (const td of teacherDefs) {
+    const caps = td.subjects.map(code => ({
+      subject: subjects[code]?._id,
+      proficiency: 'expert'
+    })).filter(c => c.subject);
+    const t = await Teacher.create({
+      name: td.name, shortName: td.shortName, department: td.department,
+      school: school._id, session: session._id, status: 'active',
+      maxPeriodsPerDay: td.maxPerDay, maxPeriodsPerWeek: td.maxPerWeek,
+      capabilities: caps
+    });
+    teachers[td.shortName] = t;
+  }
+
+  // ═══ 7. PERIOD STRUCTURES ═══
+  // Default (Mon-Fri: 8 periods + lunch)
+  const defaultPS = await PeriodStructure.create({
+    school: school._id, session: session._id, name: 'Default (Mon-Fri)',
+    templateType: 'default', status: 'active',
+    workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
     timeslots: [
-      { label: 'Period 1', slotNumber: 1, startTime: '08:00', endTime: '08:40', type: 'period', isSchedulable: true },
-      { label: 'Period 2', slotNumber: 2, startTime: '08:40', endTime: '09:20', type: 'period', isSchedulable: true },
-      { label: 'Period 3', slotNumber: 3, startTime: '09:20', endTime: '10:00', type: 'period', isSchedulable: true },
-      { label: 'Break', slotNumber: 4, startTime: '10:00', endTime: '10:20', type: 'break', isSchedulable: false },
-      { label: 'Period 4', slotNumber: 5, startTime: '10:20', endTime: '11:00', type: 'period', isSchedulable: true },
-      { label: 'Period 5', slotNumber: 6, startTime: '11:00', endTime: '11:40', type: 'period', isSchedulable: true },
-      { label: 'Lunch', slotNumber: 7, startTime: '11:40', endTime: '12:20', type: 'lunch', isSchedulable: false },
-      { label: 'Period 6', slotNumber: 8, startTime: '12:20', endTime: '13:00', type: 'period', isSchedulable: true },
-      { label: 'Period 7', slotNumber: 9, startTime: '13:00', endTime: '13:40', type: 'period', isSchedulable: true },
-      { label: 'Period 8', slotNumber: 10, startTime: '13:40', endTime: '14:20', type: 'period', isSchedulable: true },
+      { label: 'P1', slotNumber: 1, startTime: '08:00', endTime: '08:40', type: 'period', isSchedulable: true },
+      { label: 'P2', slotNumber: 2, startTime: '08:40', endTime: '09:20', type: 'period', isSchedulable: true },
+      { label: 'P3', slotNumber: 3, startTime: '09:20', endTime: '10:00', type: 'period', isSchedulable: true },
+      { label: 'P4', slotNumber: 4, startTime: '10:00', endTime: '10:40', type: 'period', isSchedulable: true },
+      { label: 'Break', slotNumber: 5, startTime: '10:40', endTime: '11:00', type: 'break', isSchedulable: false },
+      { label: 'P5', slotNumber: 6, startTime: '11:00', endTime: '11:40', type: 'period', isSchedulable: true },
+      { label: 'P6', slotNumber: 7, startTime: '11:40', endTime: '12:20', type: 'period', isSchedulable: true },
+      { label: 'Lunch', slotNumber: 8, startTime: '12:20', endTime: '13:00', type: 'lunch', isSchedulable: false },
+      { label: 'P7', slotNumber: 9, startTime: '13:00', endTime: '13:40', type: 'period', isSchedulable: true },
+      { label: 'P8', slotNumber: 10, startTime: '13:40', endTime: '14:20', type: 'period', isSchedulable: true },
+    ],
+    saturdayConfig: {
+      enabled: true,
+      timeslots: [
+        { label: 'P1', slotNumber: 1, startTime: '08:00', endTime: '08:40', type: 'period', isSchedulable: true },
+        { label: 'P2', slotNumber: 2, startTime: '08:40', endTime: '09:20', type: 'period', isSchedulable: true },
+        { label: 'P3', slotNumber: 3, startTime: '09:20', endTime: '10:00', type: 'period', isSchedulable: true },
+        { label: 'P4', slotNumber: 4, startTime: '10:00', endTime: '10:40', type: 'period', isSchedulable: true },
+        { label: 'Break', slotNumber: 5, startTime: '10:40', endTime: '11:00', type: 'break', isSchedulable: false },
+        { label: 'P5', slotNumber: 6, startTime: '11:00', endTime: '11:40', type: 'period', isSchedulable: true },
+        { label: 'P6', slotNumber: 7, startTime: '11:40', endTime: '12:20', type: 'period', isSchedulable: true },
+      ]
+    }
+  });
+
+  // Pre-primary (shorter day)
+  const prePrimaryPS = await PeriodStructure.create({
+    school: school._id, session: session._id, name: 'Pre-Primary',
+    templateType: 'junior', status: 'active',
+    assignedTo: { grades: [-2, -1, 0] },
+    workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+    timeslots: [
+      { label: 'P1', slotNumber: 1, startTime: '08:30', endTime: '09:10', type: 'period', isSchedulable: true },
+      { label: 'P2', slotNumber: 2, startTime: '09:10', endTime: '09:50', type: 'period', isSchedulable: true },
+      { label: 'Snack', slotNumber: 3, startTime: '09:50', endTime: '10:10', type: 'break', isSchedulable: false },
+      { label: 'P3', slotNumber: 4, startTime: '10:10', endTime: '10:50', type: 'period', isSchedulable: true },
+      { label: 'P4', slotNumber: 5, startTime: '10:50', endTime: '11:30', type: 'period', isSchedulable: true },
+      { label: 'Lunch', slotNumber: 6, startTime: '11:30', endTime: '12:00', type: 'lunch', isSchedulable: false },
+      { label: 'P5', slotNumber: 7, startTime: '12:00', endTime: '12:40', type: 'period', isSchedulable: true },
     ]
   });
 
-  // 4. Subjects
-  const S = {};
-  const subjectsData = [
-    { name: 'Mathematics', code: 'MATH', type: 'theory', category: 'core', defaultPeriodsPerWeek: 5, preferMorning: true, color: '#6366f1' },
-    { name: 'English', code: 'ENG', type: 'theory', category: 'core', defaultPeriodsPerWeek: 5, color: '#ec4899' },
-    { name: 'Hindi', code: 'HIN', type: 'theory', category: 'core', defaultPeriodsPerWeek: 4, color: '#f97316' },
-    { name: 'Physics', code: 'PHY', type: 'theory', category: 'core', defaultPeriodsPerWeek: 4, preferMorning: true, color: '#f59e0b' },
-    { name: 'Chemistry', code: 'CHEM', type: 'theory', category: 'core', defaultPeriodsPerWeek: 4, preferMorning: true, color: '#10b981' },
-    { name: 'Biology', code: 'BIO', type: 'theory', category: 'elective', defaultPeriodsPerWeek: 4, color: '#14b8a6' },
-    { name: 'Computer Science', code: 'CS', type: 'lab', category: 'elective', defaultPeriodsPerWeek: 3, requiresLab: true, canBeDoubled: true, color: '#8b5cf6' },
-    { name: 'Social Science', code: 'SST', type: 'theory', category: 'core', defaultPeriodsPerWeek: 4, color: '#0ea5e9' },
-    { name: 'Physical Education', code: 'PE', type: 'games', category: 'co_curricular', defaultPeriodsPerWeek: 2, preferAfternoon: true, color: '#ef4444' },
-    { name: 'Art & Craft', code: 'ART', type: 'activity', category: 'co_curricular', defaultPeriodsPerWeek: 1, preferAfternoon: true, color: '#a855f7' },
-    { name: 'Library', code: 'LIB', type: 'library', category: 'co_curricular', defaultPeriodsPerWeek: 1, color: '#78716c' },
-    { name: 'Moral Science', code: 'MS', type: 'theory', category: 'co_curricular', defaultPeriodsPerWeek: 1, color: '#d946ef' },
-    { name: 'Music', code: 'MUS', type: 'activity', category: 'extra_curricular', defaultPeriodsPerWeek: 1, preferAfternoon: true, color: '#fb923c' },
-    { name: 'Science', code: 'SCI', type: 'theory', category: 'core', defaultPeriodsPerWeek: 5, preferMorning: true, color: '#22c55e' },
-  ];
-  for (const sd of subjectsData) {
-    S[sd.code] = await Subject.create({ ...sd, school: school._id, session: session._id });
+  // ═══ 8. CLASSES (Nursery through 12) ═══
+  const allClasses = {};
+
+  // Pre-primary
+  for (const [grade, label] of [[-2, 'Nursery'], [-1, 'LKG'], [0, 'UKG']]) {
+    for (const sec of ['A', 'B']) {
+      const c = await Class.create({
+        school: school._id, session: session._id,
+        grade, section: sec, stream: 'none',
+        studentCount: 30, periodStructure: prePrimaryPS._id
+      });
+      allClasses[`${label}-${sec}`] = c;
+    }
   }
-  console.log(`✅ ${Object.keys(S).length} subjects`);
 
-  // 5. Teachers
-  const T = {};
-  const teachersData = [
-    { name: 'Dr. Arun Sharma', email: 'arun@dps.edu', department: 'Mathematics', caps: ['MATH'], color: '#6366f1' },
-    { name: 'Mrs. Priya Verma', email: 'priya@dps.edu', department: 'English', caps: ['ENG'], color: '#ec4899' },
-    { name: 'Mr. Rajesh Kumar', email: 'rajesh@dps.edu', department: 'Science', caps: ['PHY', 'SCI'], color: '#f59e0b' },
-    { name: 'Dr. Meena Iyer', email: 'meena@dps.edu', department: 'Science', caps: ['CHEM', 'SCI'], color: '#10b981' },
-    { name: 'Mr. Suresh Nair', email: 'suresh@dps.edu', department: 'Science', caps: ['BIO', 'SCI'], color: '#14b8a6' },
-    { name: 'Ms. Anita Desai', email: 'anita@dps.edu', department: 'Computer Science', caps: ['CS'], color: '#8b5cf6' },
-    { name: 'Mr. Vikram Singh', email: 'vikram@dps.edu', department: 'Social Studies', caps: ['SST'], color: '#0ea5e9' },
-    { name: 'Mrs. Kavita Joshi', email: 'kavita@dps.edu', department: 'Physical Education', caps: ['PE'], color: '#ef4444' },
-    { name: 'Mr. Arjun Reddy', email: 'arjun@dps.edu', department: 'Arts', caps: ['ART', 'MUS'], color: '#a855f7' },
-    { name: 'Dr. Sanjay Gupta', email: 'sanjay@dps.edu', department: 'Mathematics', caps: ['MATH'], color: '#3b82f6' },
-    { name: 'Mrs. Rekha Pillai', email: 'rekha@dps.edu', department: 'Hindi', caps: ['HIN'], color: '#f97316' },
-    { name: 'Mr. Deepak Tiwari', email: 'deepak@dps.edu', department: 'Library', caps: ['LIB', 'MS'], color: '#78716c' },
-  ];
-  for (const td of teachersData) {
-    T[td.email.split('@')[0]] = await Teacher.create({
-      ...td, school: school._id, session: session._id,
-      capabilities: td.caps.map(c => ({ subject: S[c]._id, proficiency: 'primary' })),
-      maxPeriodsPerDay: 6, maxPeriodsPerWeek: 30
-    });
+  // Primary (1-5)
+  for (let g = 1; g <= 5; g++) {
+    for (const sec of ['A', 'B']) {
+      const c = await Class.create({
+        school: school._id, session: session._id,
+        grade: g, section: sec, stream: 'none',
+        studentCount: 40, periodStructure: defaultPS._id
+      });
+      allClasses[`${g}-${sec}`] = c;
+    }
   }
-  console.log(`✅ ${Object.keys(T).length} teachers`);
 
-  // 6. Rooms
-  const rooms = await Room.insertMany([
-    { school: school._id, name: 'Room 101', roomNumber: '101', type: 'classroom', capacity: 40, floor: 1 },
-    { school: school._id, name: 'Room 102', roomNumber: '102', type: 'classroom', capacity: 40, floor: 1 },
-    { school: school._id, name: 'Room 103', roomNumber: '103', type: 'classroom', capacity: 40, floor: 1 },
-    { school: school._id, name: 'Room 201', roomNumber: '201', type: 'classroom', capacity: 35, floor: 2 },
-    { school: school._id, name: 'Room 202', roomNumber: '202', type: 'classroom', capacity: 35, floor: 2 },
-    { school: school._id, name: 'Room 203', roomNumber: '203', type: 'classroom', capacity: 35, floor: 2 },
-    { school: school._id, name: 'Computer Lab', roomNumber: 'LAB-1', type: 'computer_lab', capacity: 30, floor: 3 },
-    { school: school._id, name: 'Physics Lab', roomNumber: 'LAB-2', type: 'lab', capacity: 30, floor: 3 },
-    { school: school._id, name: 'Library', roomNumber: 'LIB', type: 'library', capacity: 50, floor: 0 },
-    { school: school._id, name: 'Playground', roomNumber: 'PG', type: 'playground', capacity: 200, floor: 0 },
-  ]);
-  console.log(`✅ ${rooms.length} rooms`);
-
-  // 7. Classes
-  const C = {};
-  const classesData = [
-    { grade: 9, section: 'A', studentCount: 35, ct: 'arun' },
-    { grade: 9, section: 'B', studentCount: 38, ct: 'priya' },
-    { grade: 10, section: 'A', studentCount: 32, ct: 'rajesh' },
-    { grade: 10, section: 'B', studentCount: 36, ct: 'meena' },
-  ];
-  for (const cd of classesData) {
-    const cls = await Class.create({
-      school: school._id, session: session._id,
-      grade: cd.grade, section: cd.section, studentCount: cd.studentCount,
-      classTeacher: T[cd.ct]._id, stream: 'none'
-    });
-    C[`${cd.grade}${cd.section}`] = cls;
+  // Middle (6-8)
+  for (let g = 6; g <= 8; g++) {
+    for (const sec of ['A', 'B']) {
+      const c = await Class.create({
+        school: school._id, session: session._id,
+        grade: g, section: sec, stream: 'none',
+        studentCount: 40, periodStructure: defaultPS._id
+      });
+      allClasses[`${g}-${sec}`] = c;
+    }
   }
-  console.log(`✅ ${Object.keys(C).length} classes`);
 
-  // 8. Subject Requirements
-  const reqData = [
-    // Class 9-A
-    { c: '9A', s: 'MATH', t: 'arun', p: 5 }, { c: '9A', s: 'ENG', t: 'priya', p: 5 },
-    { c: '9A', s: 'HIN', t: 'rekha', p: 4 }, { c: '9A', s: 'SCI', t: 'rajesh', p: 5 },
-    { c: '9A', s: 'SST', t: 'vikram', p: 4 }, { c: '9A', s: 'CS', t: 'anita', p: 3 },
-    { c: '9A', s: 'PE', t: 'kavita', p: 2 }, { c: '9A', s: 'ART', t: 'arjun', p: 1 },
-    // Class 9-B
-    { c: '9B', s: 'MATH', t: 'sanjay', p: 5 }, { c: '9B', s: 'ENG', t: 'priya', p: 5 },
-    { c: '9B', s: 'HIN', t: 'rekha', p: 4 }, { c: '9B', s: 'SCI', t: 'meena', p: 5 },
-    { c: '9B', s: 'SST', t: 'vikram', p: 4 }, { c: '9B', s: 'CS', t: 'anita', p: 3 },
-    { c: '9B', s: 'PE', t: 'kavita', p: 2 }, { c: '9B', s: 'ART', t: 'arjun', p: 1 },
-    // Class 10-A
-    { c: '10A', s: 'MATH', t: 'arun', p: 5 }, { c: '10A', s: 'ENG', t: 'priya', p: 5 },
-    { c: '10A', s: 'HIN', t: 'rekha', p: 4 }, { c: '10A', s: 'SCI', t: 'rajesh', p: 5 },
-    { c: '10A', s: 'SST', t: 'vikram', p: 4 }, { c: '10A', s: 'CS', t: 'anita', p: 3 },
-    { c: '10A', s: 'PE', t: 'kavita', p: 2 },
-    // Class 10-B
-    { c: '10B', s: 'MATH', t: 'sanjay', p: 5 }, { c: '10B', s: 'ENG', t: 'priya', p: 5 },
-    { c: '10B', s: 'HIN', t: 'rekha', p: 4 }, { c: '10B', s: 'SCI', t: 'suresh', p: 5 },
-    { c: '10B', s: 'SST', t: 'vikram', p: 4 }, { c: '10B', s: 'CS', t: 'anita', p: 3 },
-    { c: '10B', s: 'PE', t: 'kavita', p: 2 },
-  ];
-  for (const r of reqData) {
-    await SubjectRequirement.create({
-      school: school._id, session: session._id,
-      class: C[r.c]._id, subject: S[r.s]._id, teacher: T[r.t]._id,
-      periodsPerWeek: r.p
-    });
+  // Secondary (9-10)
+  for (let g = 9; g <= 10; g++) {
+    for (const sec of ['A', 'B']) {
+      const c = await Class.create({
+        school: school._id, session: session._id,
+        grade: g, section: sec, stream: 'none',
+        studentCount: 40, periodStructure: defaultPS._id
+      });
+      allClasses[`${g}-${sec}`] = c;
+    }
   }
-  console.log(`✅ ${reqData.length} subject requirements`);
 
-  // 9. Combination Rules
-  await SubjectCombinationRule.create({
-    school: school._id, session: session._id,
-    name: 'Library combined for 9A & 9B',
-    subject: S.LIB._id, teacher: T.deepak._id,
-    appliesTo: [{ class: C['9A']._id }, { class: C['9B']._id }],
-    periodsPerWeek: 1, strictness: 'must_combine'
-  });
-  await SubjectCombinationRule.create({
-    school: school._id, session: session._id,
-    name: 'Moral Science combined for 10A & 10B',
-    subject: S.MS._id, teacher: T.deepak._id,
-    appliesTo: [{ class: C['10A']._id }, { class: C['10B']._id }],
-    periodsPerWeek: 1, strictness: 'try_combine'
-  });
-  console.log('✅ 2 combination rules');
+  // Senior (11-12) with streams
+  for (let g = 11; g <= 12; g++) {
+    for (const [stream, streamCode] of [['science', 'Sci'], ['commerce', 'Com'], ['humanities', 'Hum']]) {
+      for (const sec of ['A']) {
+        const c = await Class.create({
+          school: school._id, session: session._id,
+          grade: g, section: sec, stream,
+          studentCount: 35, periodStructure: defaultPS._id,
+          studentGroups: stream === 'science' ? [
+            { name: 'Bio Group', code: 'BIO', studentCount: 18 },
+            { name: 'Maths Group', code: 'MATH', studentCount: 17 }
+          ] : []
+        });
+        allClasses[`${g}-${sec}-${streamCode}`] = c;
+      }
+    }
+  }
 
-  // 10. Reserved Period Rules
+  // ═══ 9. SUBJECT REQUIREMENTS ═══
+  // Helper to create requirements
+  const createReqs = async (classKey, reqList) => {
+    const cls = allClasses[classKey];
+    if (!cls) return;
+    for (const r of reqList) {
+      const subj = subjects[r.subject];
+      const teacher = teachers[r.teacher];
+      if (!subj || !teacher) continue;
+      await SubjectRequirement.create({
+        school: school._id, session: session._id,
+        class: cls._id, subject: subj._id, teacher: teacher._id,
+        periodsPerWeek: r.periods, allowDoublePeriod: r.double || false,
+        consecutivePreference: r.consecutive || 'none',
+        consecutiveCount: r.consecutiveCount || 2,
+        studentGroup: r.group || null, isActive: true
+      });
+    }
+  };
+
+  // Pre-primary requirements (5 periods/week of main subjects)
+  const prePrimaryReqs = [
+    { subject: 'ENG', periods: 6 }, { subject: 'HIN', periods: 5 },
+    { subject: 'MAT', periods: 5 }, { subject: 'EVS', periods: 4 },
+    { subject: 'ART', periods: 2 }, { subject: 'MUS', periods: 1 },
+    { subject: 'PE', periods: 2 },
+  ];
+  for (const [classKey, teacherCode] of [['Nursery-A', 'SHG'], ['Nursery-B', 'LMN'], ['LKG-A', 'SHG'], ['LKG-B', 'APT'], ['UKG-A', 'LMN'], ['UKG-B', 'APT']]) {
+    await createReqs(classKey, prePrimaryReqs.map(r => ({
+      ...r,
+      teacher: ['ART', 'MUS', 'PE'].includes(r.subject)
+        ? (r.subject === 'ART' ? 'MSD' : r.subject === 'MUS' ? 'PVH' : 'SYD')
+        : teacherCode
+    })));
+  }
+
+  // Primary (1-5): ENG 6, HIN 5, MAT 6, EVS 4, GK 1, MS 1, PE 2, ART 1, MUS 1, LIB 1
+  const primaryReqs = (tc) => [
+    { subject: 'ENG', periods: 6, teacher: tc }, { subject: 'HIN', periods: 5, teacher: tc },
+    { subject: 'MAT', periods: 6, teacher: tc }, { subject: 'EVS', periods: 4, teacher: tc },
+    { subject: 'GK', periods: 1, teacher: 'KDV' }, { subject: 'MS', periods: 1, teacher: 'KDV' },
+    { subject: 'PE', periods: 2, teacher: 'SYD' }, { subject: 'ART', periods: 1, teacher: 'MSD' },
+    { subject: 'MUS', periods: 1, teacher: 'PVH' }, { subject: 'LIB', periods: 1, teacher: 'DRW' },
+  ];
+  const primaryTeachers = { '1-A': 'RKI', '1-B': 'SDV', '2-A': 'PSG', '2-B': 'NRD', '3-A': 'RKI', '3-B': 'SDV', '4-A': 'PSG', '4-B': 'NRD', '5-A': 'RKI', '5-B': 'SDV' };
+  for (const [ck, tc] of Object.entries(primaryTeachers)) {
+    await createReqs(ck, primaryReqs(tc));
+  }
+
+  // Middle (6-8): ENG 5, HIN 5, MAT 6, SCI 5 (double), SST 5, CS 2 (double), PE 2, ART 1, MUS 1, LIB 1, SKT 1
+  for (let g = 6; g <= 8; g++) {
+    for (const sec of ['A', 'B']) {
+      await createReqs(`${g}-${sec}`, [
+        { subject: 'ENG', periods: 5, teacher: sec === 'A' ? 'AVR' : 'SNR' },
+        { subject: 'HIN', periods: 5, teacher: sec === 'A' ? 'GRO' : 'RPD' },
+        { subject: 'MAT', periods: 6, teacher: sec === 'A' ? 'RKM' : 'DMT' },
+        { subject: 'SCI', periods: 5, teacher: sec === 'A' ? 'VTW' : 'RSV', double: true, consecutive: 'preferred' },
+        { subject: 'SST', periods: 5, teacher: sec === 'A' ? 'ASH' : 'PBT' },
+        { subject: 'CS', periods: 2, teacher: 'RKP', double: true, consecutive: 'preferred' },
+        { subject: 'SKT', periods: 1, teacher: 'VRW' },
+        { subject: 'PE', periods: 2, teacher: sec === 'A' ? 'SYD' : 'LTN' },
+        { subject: 'ART', periods: 1, teacher: 'MSD' },
+        { subject: 'MUS', periods: 1, teacher: 'PVH' },
+        { subject: 'LIB', periods: 1, teacher: 'DRW' },
+      ]);
+    }
+  }
+
+  // Secondary (9-10): ENG 5, HIN 5, MAT 6, SCI 6 (double), SST 5, CS 2, PE 2, LIB 1
+  for (let g = 9; g <= 10; g++) {
+    for (const sec of ['A', 'B']) {
+      await createReqs(`${g}-${sec}`, [
+        { subject: 'ENG', periods: 5, teacher: 'KSG' },
+        { subject: 'HIN', periods: 5, teacher: 'SJH' },
+        { subject: 'MAT', periods: 6, teacher: sec === 'A' ? 'ASX' : 'MIY' },
+        { subject: 'SCI', periods: 6, teacher: sec === 'A' ? 'SDB' : 'PMH', double: true, consecutive: 'required' },
+        { subject: 'SST', periods: 5, teacher: 'VCH' },
+        { subject: 'CS', periods: 2, teacher: 'NGP', double: true, consecutive: 'preferred' },
+        { subject: 'PE', periods: 2, teacher: 'LTN' },
+        { subject: 'LIB', periods: 1, teacher: 'DRW' },
+      ]);
+    }
+  }
+
+  // Senior Science (11-12): PHY 5, CHM 5, BIO/MAT 5 (split), ENG 4, PE 2, CS 2
+  for (let g = 11; g <= 12; g++) {
+    const ck = `${g}-A-Sci`;
+    await createReqs(ck, [
+      { subject: 'ENG', periods: 4, teacher: 'AVR' },
+      { subject: 'PHY', periods: 5, teacher: 'VTW', double: true, consecutive: 'required' },
+      { subject: 'CHM', periods: 5, teacher: 'RSV', double: true, consecutive: 'required' },
+      { subject: 'BIO', periods: 5, teacher: 'SGP', group: 'Bio Group', double: true, consecutive: 'required' },
+      { subject: 'MAT', periods: 5, teacher: 'ASX', group: 'Maths Group' },
+      { subject: 'PE', periods: 2, teacher: 'SYD' },
+      { subject: 'CS', periods: 2, teacher: 'RKP', double: true, consecutive: 'preferred' },
+    ]);
+  }
+
+  // Senior Commerce (11-12): ACC 5, BST 5, ECO 5, ENG 4, MAT/CS 2, PE 2
+  for (let g = 11; g <= 12; g++) {
+    await createReqs(`${g}-A-Com`, [
+      { subject: 'ENG', periods: 4, teacher: 'SNR' },
+      { subject: 'ACC', periods: 5, teacher: 'DAG' },
+      { subject: 'BST', periods: 5, teacher: 'RML' },
+      { subject: 'ECO', periods: 5, teacher: 'SJN' },
+      { subject: 'MAT', periods: 4, teacher: 'DMT' },
+      { subject: 'PE', periods: 2, teacher: 'LTN' },
+      { subject: 'CS', periods: 2, teacher: 'NGP' },
+    ]);
+  }
+
+  // Senior Humanities (11-12): HIS 5, GEO 5, POL 5, ENG 4, ECO 4, PE 2
+  for (let g = 11; g <= 12; g++) {
+    await createReqs(`${g}-A-Hum`, [
+      { subject: 'ENG', periods: 4, teacher: 'KSG' },
+      { subject: 'HIS', periods: 5, teacher: 'PBT' },
+      { subject: 'GEO', periods: 5, teacher: 'ASH' },
+      { subject: 'POL', periods: 5, teacher: 'ADV' },
+      { subject: 'ECO', periods: 4, teacher: 'VCH' },
+      { subject: 'PE', periods: 2, teacher: 'SYD' },
+    ]);
+  }
+
+  // ═══ 10. CAN TEACH MAPPINGS ═══
+  for (const td of teacherDefs) {
+    const t = teachers[td.shortName];
+    for (const code of td.subjects) {
+      const s = subjects[code];
+      if (!t || !s) continue;
+      await CanTeach.create({
+        school: school._id, session: session._id,
+        teacher: t._id, subject: s._id,
+        role: 'primary', priority: 8, isActive: true
+      });
+    }
+  }
+
+  // ═══ 11. RESERVED PERIOD RULES ═══
+  // Saturday last period = Activity
   await ReservedPeriodRule.create({
     school: school._id, session: session._id,
-    name: 'Saturday Last Period Activity',
-    type: 'activity', day: 'Saturday', periods: [8],
-    appliesTo: [], isLocked: true
+    name: 'Saturday Activity Period', type: 'activity',
+    day: 'Saturday', periods: [7], isLocked: true, isActive: true
   });
-  console.log('✅ 1 reserved period rule');
 
-  // 11. Default Admin User
-  const adminUser = await User.create({
-    name: 'Admin User', email: 'admin@dps.edu', password: 'admin123',
-    role: 'school_admin',
-    schools: [{ school: school._id, role: 'school_admin', permissions: [
-      'view_timetable','generate_timetable','edit_setup','manage_teachers',
-      'manage_rules','approve_substitutions','publish_timetable','view_audit',
-      'manage_users','manage_school','export_reports','edit_timetable',
-      'manage_absences','manage_replacements'
-    ]}],
-    activeSchool: school._id, activeSession: session._id
-  });
-  console.log(`✅ Admin user: admin@dps.edu / admin123`);
+  // Set class teachers
+  const classTeacherMap = {
+    '1-A': 'RKI', '1-B': 'SDV', '2-A': 'PSG', '2-B': 'NRD',
+    '3-A': 'RKI', '3-B': 'SDV', '4-A': 'PSG', '4-B': 'NRD',
+    '5-A': 'RKI', '5-B': 'SDV',
+    '6-A': 'AVR', '6-B': 'GRO', '7-A': 'RKM', '7-B': 'ASH',
+    '8-A': 'DMT', '8-B': 'PBT',
+    '9-A': 'KSG', '9-B': 'VCH', '10-A': 'ASX', '10-B': 'SDB',
+  };
+  for (const [ck, tc] of Object.entries(classTeacherMap)) {
+    const cls = allClasses[ck];
+    const t = teachers[tc];
+    if (cls && t) {
+      cls.classTeacher = t._id;
+      await cls.save();
+    }
+  }
 
-  console.log('\n🎉 Seed complete! Run the server and open http://localhost:5173');
+  console.log(`✅ Seed complete!`);
+  console.log(`   📚 School: ${school.name}`);
+  console.log(`   🗓️  Session: ${session.name}`);
+  console.log(`   👩‍🏫 Teachers: ${Object.keys(teachers).length}`);
+  console.log(`   🏫 Classes: ${Object.keys(allClasses).length}`);
+  console.log(`   📖 Subjects: ${Object.keys(subjects).length}`);
+  console.log(`   🚪 Rooms: ${rooms.length}`);
+  console.log(`\n   Login: platform@dpsmodel.edu.in / admin123`);
+  console.log(`   Login: principal@dpsmodel.edu.in / admin123`);
+  console.log(`   Login: timetable@dpsmodel.edu.in / admin123`);
+  console.log(`   Login: teacher@dpsmodel.edu.in / admin123`);
+
+  await mongoose.connection.close();
   process.exit(0);
-};
+}
 
-seed().catch(err => { console.error('❌', err); process.exit(1); });
+seedData().catch(err => { console.error('❌ Seed failed:', err); process.exit(1); });

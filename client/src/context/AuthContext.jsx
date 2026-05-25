@@ -55,9 +55,14 @@ export function AuthProvider({ children }) {
     setUser(u => ({ ...u, activeSchool: schoolId, activeSession: sessionId }));
   };
 
+  const isPlatformUser = () => {
+    if (!user) return false;
+    return ['platform_owner', 'platform_support', 'platform_developer', 'platform_qa', 'deployment_manager'].includes(user.role);
+  };
+
   const hasPermission = (perm) => {
     if (!user) return false;
-    if (['platform_owner', 'platform_support'].includes(user.role)) return true;
+    if (isPlatformUser()) return true;
     const membership = user.schools?.find(s =>
       (s.school?._id || s.school) === user.activeSchool?.toString()
     );
@@ -66,7 +71,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAuthenticated, login, register, logout, switchSchool, hasPermission }}>
+    <AuthContext.Provider value={{ user, loading, isAuthenticated, login, register, logout, switchSchool, hasPermission, isPlatformUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,0 +1,32 @@
+version: '3.8'
+services:
+  mongodb:
+    image: mongo:7
+    container_name: timecraft-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: school_timetable
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: timecraft-server
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - NODE_ENV=production
+      - PORT=5001
+      - MONGODB_URI=mongodb://mongodb:27017/school_timetable
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+    depends_on:
+      - mongodb
+
+volumes:
+  mongo_data:

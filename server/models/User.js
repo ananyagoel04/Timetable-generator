@@ -42,7 +42,9 @@ const userSchema = new mongoose.Schema({
   }],
   isActive: { type: Boolean, default: true },
   lastLogin: { type: Date },
-  refreshToken: { type: String, select: false }
+  refreshToken: { type: String, select: false },
+  passwordResetToken: { type: String, select: false },
+  passwordResetExpires: { type: Date, select: false }
 }, { timestamps: true });
 
 // Hash password before save

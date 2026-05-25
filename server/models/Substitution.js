@@ -13,4 +13,7 @@ const substitutionSchema = new mongoose.Schema({
   notes: { type: String, trim: true, default: '' }
 }, { timestamps: true });
 
+substitutionSchema.index({ school: 1, date: -1, status: 1 });
+substitutionSchema.index({ school: 1, originalTeacher: 1, date: 1 });
+
 module.exports = mongoose.model('Substitution', substitutionSchema);

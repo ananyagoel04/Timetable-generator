@@ -9,4 +9,6 @@ const academicSessionSchema = new mongoose.Schema({
   status: { type: String, enum: ['draft', 'active', 'archived'], default: 'draft' }
 }, { timestamps: true });
 
+academicSessionSchema.index({ school: 1, status: 1, isCurrent: 1 });
+
 module.exports = mongoose.model('AcademicSession', academicSessionSchema);

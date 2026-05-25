@@ -28,4 +28,6 @@ const teacherReplacementSchema = new mongoose.Schema({
   appliedBy: { type: String }
 }, { timestamps: true });
 
+teacherReplacementSchema.index({ school: 1, session: 1, originalTeacher: 1, status: 1 });
+
 module.exports = mongoose.model('TeacherReplacement', teacherReplacementSchema);

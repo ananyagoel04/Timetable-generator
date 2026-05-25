@@ -6,11 +6,12 @@ const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
 const AuditLog = require('../models/AuditLog');
 const { protect, JWT_SECRET } = require('../middleware/auth');
+const { validateRegister, validateLogin, validateForgotPassword, validateResetPassword, validateSwitchSchool } = require('../middleware/validators');
 
 const signToken = (id) => jwt.sign({ id }, JWT_SECRET, { expiresIn: '7d' });
 
 // POST /api/auth/register
-router.post('/register', async (req, res, next) => {
+router.post('/register', validateRegister, async (req, res, next) => {
   try {
     const { name, email, password, role } = req.body;
     if (!name || !email || !password) return res.status(400).json({ success: false, error: 'Name, email, password required' });
@@ -36,7 +37,7 @@ router.post('/register', async (req, res, next) => {
 });
 
 // POST /api/auth/login
-router.post('/login', async (req, res, next) => {
+router.post('/login', validateLogin, async (req, res, next) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ success: false, error: 'Email and password required' });
@@ -67,7 +68,7 @@ router.get('/me', protect, async (req, res) => {
 });
 
 // PUT /api/auth/switch-school
-router.put('/switch-school', protect, async (req, res, next) => {
+router.put('/switch-school', protect, validateSwitchSchool, async (req, res, next) => {
   try {
     const { schoolId, sessionId } = req.body;
     const user = await User.findById(req.user._id);
@@ -83,4 +84,68 @@ router.put('/switch-school', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /api/auth/refresh — Refresh token rotation (item #12)
+router.post('/refresh', async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) return res.status(400).json({ success: false, error: 'Refresh token required' });
+    const user = await User.findOne({ refreshToken }).select('+refreshToken');
+    if (!user || !user.isActive) return res.status(401).json({ success: false, error: 'Invalid refresh token' });
+    // Rotate tokens
+    const newAccessToken = signToken(user._id);
+    const crypto = require('crypto');
+    const newRefreshToken = crypto.randomBytes(40).toString('hex');
+    user.refreshToken = newRefreshToken;
+    await user.save({ validateModifiedOnly: true });
+    res.json({ success: true, data: { token: newAccessToken, refreshToken: newRefreshToken } });
+  } catch (err) { next(err); }
+});
+
+// POST /api/auth/forgot-password — Generate reset token (item #11)
+router.post('/forgot-password', validateForgotPassword, async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, error: 'Email required' });
+    const user = await User.findOne({ email, isActive: true });
+    if (!user) return res.json({ success: true, message: 'If account exists, reset token generated' }); // Don't leak
+    // Generate time-limited reset token
+    const crypto = require('crypto');
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const bcrypt = require('bcryptjs');
+    user.passwordResetToken = await bcrypt.hash(resetToken, 10);
+    user.passwordResetExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+    await user.save({ validateModifiedOnly: true });
+    // In production: send email with reset link. For dev: return token.
+    const response = { success: true, message: 'Password reset token generated (30 min validity)' };
+    if (process.env.NODE_ENV === 'development') response.resetToken = resetToken;
+    res.json(response);
+  } catch (err) { next(err); }
+});
+
+// POST /api/auth/reset-password
+router.post('/reset-password', validateResetPassword, async (req, res, next) => {
+  try {
+    const { email, resetToken, newPassword } = req.body;
+    if (!email || !resetToken || !newPassword) return res.status(400).json({ success: false, error: 'Email, resetToken, and newPassword required' });
+    if (newPassword.length < 6) return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
+    const user = await User.findOne({ email, isActive: true }).select('+passwordResetToken');
+    if (!user || !user.passwordResetToken || !user.passwordResetExpires) {
+      return res.status(400).json({ success: false, error: 'Invalid or expired reset token' });
+    }
+    if (user.passwordResetExpires < new Date()) {
+      return res.status(400).json({ success: false, error: 'Reset token has expired' });
+    }
+    const bcrypt = require('bcryptjs');
+    const isValid = await bcrypt.compare(resetToken, user.passwordResetToken);
+    if (!isValid) return res.status(400).json({ success: false, error: 'Invalid reset token' });
+    user.password = newPassword;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
+    await AuditLog.create({ user: user._id, userName: user.name, action: 'update', entityType: 'user', source: 'manual', reason: 'Password reset' });
+    res.json({ success: true, message: 'Password reset successfully' });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
+

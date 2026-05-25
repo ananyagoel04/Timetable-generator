@@ -4,6 +4,8 @@ const teacherSchema = new mongoose.Schema({
   school: { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
   session: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession', required: true },
   name: { type: String, required: true, trim: true },
+  shortName: { type: String, trim: true },
+  printAlias: { type: String, trim: true },
   employeeId: { type: String, trim: true },
   email: { type: String, required: true, lowercase: true, trim: true },
   phone: { type: String, trim: true },

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SidebarProvider } from './context/SidebarContext';
+import { ThemeProvider } from './context/ThemeContext';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -24,14 +25,18 @@ import CustomRules from './pages/CustomRules';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
 import PlatformAdmin from './pages/PlatformAdmin';
+import UserManagement from './pages/UserManagement';
+import CanTeachManager from './pages/CanTeachManager';
+import ForgotPassword from './pages/ForgotPassword';
+import SchoolSessionSelector from './pages/SchoolSessionSelector';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-dark-950">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-dark-950">
       <div className="text-center">
         <div className="w-12 h-12 mx-auto mb-4 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-dark-400 text-sm">Loading...</p>
+        <p className="text-slate-500 dark:text-dark-400 text-sm">Loading...</p>
       </div>
     </div>
   );
@@ -42,7 +47,7 @@ function AppRoutes() {
   const { isAuthenticated, loading } = useAuth();
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-dark-950">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-dark-950">
       <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
     </div>
   );
@@ -50,6 +55,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/select-school" element={isAuthenticated ? <SchoolSessionSelector /> : <Navigate to="/login" replace />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/setup" element={<SetupWizard />} />
@@ -59,6 +66,7 @@ function AppRoutes() {
         <Route path="/rooms" element={<Rooms />} />
         <Route path="/periods" element={<PeriodStructure />} />
         <Route path="/requirements" element={<SubjectRequirements />} />
+        <Route path="/can-teach" element={<CanTeachManager />} />
         <Route path="/combinations" element={<CombinationRules />} />
         <Route path="/timetable" element={<TimetableView />} />
         <Route path="/generator" element={<Generator />} />
@@ -69,6 +77,7 @@ function AppRoutes() {
         <Route path="/rules" element={<CustomRules />} />
         <Route path="/replacements" element={<TeacherReplacements />} />
         <Route path="/reports" element={<Reports />} />
+        <Route path="/users" element={<UserManagement />} />
         <Route path="/platform" element={<PlatformAdmin />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
@@ -82,7 +91,7 @@ function PlaceholderPage({ title, desc }) {
     <div className="flex items-center justify-center py-24 animate-fade-in">
       <div className="text-center">
         <h1 className="page-title">{title}</h1>
-        <p className="text-dark-400 mt-2">{desc}</p>
+        <p className="text-slate-500 dark:text-dark-400 mt-2">{desc}</p>
       </div>
     </div>
   );
@@ -91,16 +100,17 @@ function PlaceholderPage({ title, desc }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <SidebarProvider>
-          <Toaster position="top-right" toastOptions={{
-            style: { background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '12px' },
-            success: { iconTheme: { primary: '#10b981', secondary: '#1e293b' } },
-            error: { iconTheme: { primary: '#ef4444', secondary: '#1e293b' } },
-          }} />
-          <AppRoutes />
-        </SidebarProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <SidebarProvider>
+            <Toaster position="top-right" toastOptions={{
+              className: '!bg-white dark:bg-dark-800 !text-slate-900 dark:text-dark-50 !border !border-slate-300/50 dark:border-dark-700/50',
+              style: { backdropFilter: 'blur(16px)' }
+            }} />
+            <AppRoutes />
+          </SidebarProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

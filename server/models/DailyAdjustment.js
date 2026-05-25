@@ -27,4 +27,6 @@ const dailyAdjustmentSchema = new mongoose.Schema({
   publishedAt: { type: Date }
 }, { timestamps: true });
 
+dailyAdjustmentSchema.index({ school: 1, date: -1, overallStatus: 1 });
+
 module.exports = mongoose.model('DailyAdjustment', dailyAdjustmentSchema);

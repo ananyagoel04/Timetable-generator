@@ -14,6 +14,9 @@ const subjectRequirementSchema = new mongoose.Schema({
   // Double period preferences
   allowDoublePeriod: { type: Boolean, default: false },
   doublePeriodsPerWeek: { type: Number, default: 0 },
+  // Consecutive period preferences
+  consecutivePreference: { type: String, enum: ['none', 'preferred', 'required'], default: 'none' },
+  consecutiveCount: { type: Number, default: 2, min: 2, max: 4 },
   // Day preferences
   preferredDays: [{ type: String, enum: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] }],
   avoidDays: [{ type: String, enum: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] }],

@@ -123,6 +123,9 @@ export default function Login() {
               className="btn-primary w-full flex items-center justify-center gap-2 py-3 text-base">
               <LogIn size={18} /> {submitting ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
             </button>
+            {isLogin && (
+              <a href="/forgot-password" className="block text-center text-sm text-primary-400 hover:text-primary-300 mt-3 transition-colors">Forgot Password?</a>
+            )}
           </form>
 
           <p className="text-center text-xs text-slate-400 dark:text-dark-500 mt-4">

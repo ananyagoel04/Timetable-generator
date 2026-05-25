@@ -1,12 +1,139 @@
-import { useState, useEffect } from 'react';
-import { Lock, Unlock, ArrowLeftRight, Edit3, Save, X, AlertTriangle, GripVertical, Loader2, PenSquare, Users, BookOpen, DoorOpen, RefreshCw, Move, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  DndContext, closestCenter, DragOverlay, useSensor, useSensors,
+  PointerSensor, KeyboardSensor, TouchSensor
+} from '@dnd-kit/core';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
+import {
+  Lock, Unlock, ArrowLeftRight, Edit3, Save, X, AlertTriangle,
+  GripVertical, Loader2, PenSquare, Users, BookOpen, DoorOpen,
+  RefreshCw, Move, Download, Printer, Eye, EyeOff, Undo2, History
+} from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Modal from '../components/ui/Modal';
+import PermissionGate from '../components/ui/PermissionGate';
+import { useAuth } from '../context/AuthContext';
 
-const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
 
+// ═══════════════════════════════════════════════════════════════════
+// DRAGGABLE BLOCK CELL (dnd-kit)
+// ═══════════════════════════════════════════════════════════════════
+function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHighlighted }) {
+  const isLocked = block?.isLocked;
+  const isConsec = block?.consecutiveGroupId;
+
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: id,
+    data: { block, day, period },
+    disabled: !editMode || isLocked,
+  });
+
+  if (!block) return null;
+
+  return (
+    <div
+      ref={setDragRef}
+      {...(editMode && !isLocked ? { ...attributes, ...listeners } : {})}
+      onClick={() => onEdit(block)}
+      className={`p-2 rounded-xl text-[10px] relative min-h-[56px] transition-all duration-200 group select-none
+        ${editMode && !isLocked ? 'cursor-grab active:cursor-grabbing hover:shadow-lg hover:scale-[1.02] hover:-translate-y-0.5' : 'cursor-pointer hover:shadow-sm'}
+        ${isLocked ? 'opacity-80 ring-1 ring-amber-400/30' : ''}
+        ${isDragging ? 'opacity-30 scale-95 ring-2 ring-primary-400' : ''}
+        ${isHighlighted ? 'ring-2 ring-blue-400 shadow-lg' : ''}
+        ${isConsec ? 'border-l-4' : 'border-l-[3px]'}`}
+      style={{
+        backgroundColor: (block.subject?.color || '#6366f1') + '15',
+        borderLeftColor: block.subject?.color || '#6366f1'
+      }}
+    >
+      {editMode && !isLocked && (
+        <div className="absolute top-1 left-1 opacity-40 group-hover:opacity-100 transition-opacity">
+          <GripVertical size={10} className="text-slate-400 dark:text-dark-500" />
+        </div>
+      )}
+
+      <p className="font-semibold text-slate-800 dark:text-dark-50 truncate text-xs pl-3">{block.subject?.name || 'Free'}</p>
+      <p className="text-slate-500 dark:text-dark-400 truncate pl-3">{block.teacher?.shortName || block.teacher?.name || ''}</p>
+      <p className="text-slate-400 dark:text-dark-500 truncate pl-3">{block.room?.name || ''}</p>
+      {block.studentGroup && <span className="text-[8px] text-purple-500 dark:text-purple-400 pl-3">👥 {block.studentGroup}</span>}
+
+      <div className="absolute top-1 right-1 flex gap-0.5 items-center">
+        {isLocked && <span className="text-[8px]" title="Locked">🔒</span>}
+        {block.type === 'combined_class' && <span className="text-[8px]" title="Combined">🔗</span>}
+        {isConsec && (
+          <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-500/10 text-[7px] text-purple-500 font-medium" title="Consecutive">
+            ⚡
+          </span>
+        )}
+        {editMode && !isLocked && <PenSquare size={10} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
+      </div>
+
+      <button onClick={(e) => { e.stopPropagation(); onLock(block); }}
+        className="absolute bottom-1 right-1 opacity-0 group-hover:opacity-100 p-0.5 transition-opacity">
+        {isLocked ? <Unlock size={10} className="text-amber-400" /> : <Lock size={10} className="text-slate-400" />}
+      </button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DROPPABLE CELL (dnd-kit)
+// ═══════════════════════════════════════════════════════════════════
+function DroppableCell({ id, day, period, editMode, children }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: id,
+    data: { day, period },
+  });
+
+  return (
+    <td className="px-1.5 py-1" ref={setNodeRef}>
+      {children || (
+        <div className={`p-2 rounded-lg text-center min-h-[56px] flex items-center justify-center transition-all duration-200
+          ${isOver
+            ? 'border-2 border-dashed border-primary-400 bg-primary-50 dark:bg-primary-900/20 scale-[1.03] shadow-md'
+            : 'border border-dashed border-slate-200/80 dark:border-dark-700/40 bg-slate-50/30 dark:bg-dark-800/20'}
+          ${editMode ? 'cursor-pointer hover:border-primary-300 hover:bg-primary-50/50 dark:hover:bg-primary-900/10' : ''}`}>
+          {isOver ? (
+            <span className="text-primary-500 font-medium text-xs animate-pulse">↓ Drop</span>
+          ) : editMode ? (
+            <span className="text-slate-300 dark:text-dark-600 text-[10px]">+ Add</span>
+          ) : (
+            <span className="text-slate-300 dark:text-dark-600 text-[10px]">—</span>
+          )}
+        </div>
+      )}
+    </td>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DRAG OVERLAY (floating preview while dragging)
+// ═══════════════════════════════════════════════════════════════════
+function DragOverlayBlock({ block }) {
+  if (!block) return null;
+  return (
+    <div className="p-2.5 rounded-xl text-[10px] min-h-[56px] shadow-2xl border-l-4 opacity-90 pointer-events-none"
+      style={{
+        backgroundColor: (block.subject?.color || '#6366f1') + '25',
+        borderLeftColor: block.subject?.color || '#6366f1',
+        backdropFilter: 'blur(12px)',
+        width: '140px',
+      }}>
+      <p className="font-bold text-slate-900 dark:text-dark-50 text-xs truncate">{block.subject?.name || 'Free'}</p>
+      <p className="text-slate-500 dark:text-dark-400 truncate">{block.teacher?.shortName || block.teacher?.name}</p>
+      <p className="text-slate-400 dark:text-dark-500 truncate">{block.room?.name}</p>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════
 export default function TimetableView() {
+  const { hasPermission } = useAuth();
   const [classes, setClasses] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -22,15 +149,24 @@ export default function TimetableView() {
 
   // Editor state
   const [editMode, setEditMode] = useState(false);
-  const [dragSource, setDragSource] = useState(null);
-  const [dragOverTarget, setDragOverTarget] = useState(null);
   const [pendingSwaps, setPendingSwaps] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [activeBlock, setActiveBlock] = useState(null); // Drag overlay
+  const [highlightTeacher, setHighlightTeacher] = useState(null);
+  const [showCompact, setShowCompact] = useState(false);
 
   // Inline edit modal
   const [editBlock, setEditBlock] = useState(null);
   const [editData, setEditData] = useState({ subject: '', teacher: '', room: '' });
   const [editSaving, setEditSaving] = useState(false);
+  const [moveConflicts, setMoveConflicts] = useState(null);
+
+  // dnd-kit sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+    useSensor(KeyboardSensor)
+  );
 
   useEffect(() => {
     Promise.all([
@@ -60,21 +196,89 @@ export default function TimetableView() {
       setBlocks(b);
       const mp = b.reduce((max, bl) => Math.max(max, ...(bl.periods || [])), 0);
       setMaxPeriod(Math.max(mp, 8));
-    } catch (err) { /* silent */ }
+    } catch { /* silent */ }
     finally { setLoading(false); }
   };
 
-  const getBlock = (day, period) => blocks.find(b => b.day === day && b.periods?.includes(period) && b.type !== 'reserved');
-  const isBreak = (period) => !!blocks.find(b => b.type === 'reserved' && b.periods?.includes(period) && !b.subject);
+  const getBlock = useCallback((day, period) =>
+    blocks.find(b => b.day === day && b.periods?.includes(period) && b.type !== 'reserved'),
+    [blocks]
+  );
 
-  // Check if this block is part of a consecutive group
-  const isConsecutiveGroup = (block) => block?.consecutiveGroupId;
+  const isBreak = useCallback((period) =>
+    !!blocks.find(b => b.type === 'reserved' && b.periods?.includes(period) && !b.subject),
+    [blocks]
+  );
 
-  // Find consecutive peer on the same day
-  const getConsecutivePeers = (block) => {
-    if (!block?.consecutiveGroupId) return [];
-    return blocks.filter(b => b.consecutiveGroupId === block.consecutiveGroupId && b._id !== block._id);
-  };
+  const periods = useMemo(() => Array.from({ length: maxPeriod }, (_, i) => i + 1), [maxPeriod]);
+
+  // ═══ DND-KIT HANDLERS ═══
+  const handleDragStart = useCallback((event) => {
+    const { block } = event.active.data.current;
+    setActiveBlock(block);
+  }, []);
+
+  const handleDragEnd = useCallback(async (event) => {
+    setActiveBlock(null);
+    const { active, over } = event;
+    if (!over || !editMode) return;
+
+    const sourceData = active.data.current;
+    const targetData = over.data.current;
+
+    if (!sourceData || !targetData) return;
+    if (sourceData.day === targetData.day && sourceData.period === targetData.period) return;
+
+    const sourceBlock = sourceData.block;
+    const targetBlock = getBlock(targetData.day, targetData.period);
+
+    if (targetBlock?.isLocked) {
+      toast.error('Target slot is locked');
+      return;
+    }
+
+    // Validate move before queuing
+    if (sourceBlock?._id) {
+      try {
+        const res = await api.post(`/timetable/block/${sourceBlock._id}/validate-move`, {
+          day: targetData.day, period: targetData.period
+        });
+        const validation = res.data?.data || res.data;
+        if (validation?.conflicts?.length) {
+          setMoveConflicts({
+            source: sourceBlock,
+            target: targetBlock,
+            targetDay: targetData.day,
+            targetPeriod: targetData.period,
+            conflicts: validation.conflicts,
+            warnings: validation.warnings || []
+          });
+          return;
+        }
+        if (validation?.warnings?.length) {
+          toast(validation.warnings[0], { icon: '⚠️' });
+        }
+      } catch { /* proceed anyway */ }
+    }
+
+    const swap = {
+      sourceBlock: sourceBlock?._id,
+      sourceDay: sourceData.day,
+      sourcePeriod: sourceData.period,
+      targetBlock: targetBlock?._id,
+      targetDay: targetData.day,
+      targetPeriod: targetData.period,
+      sourceLabel: sourceBlock?.subject?.name || 'Empty',
+      targetLabel: targetBlock?.subject?.name || 'Empty'
+    };
+
+    setPendingSwaps(prev => [...prev, swap]);
+    toast(`Swap queued: ${swap.sourceLabel} ↔ ${swap.targetLabel}`, { icon: '🔄' });
+  }, [editMode, getBlock]);
+
+  const handleDragCancel = useCallback(() => {
+    setActiveBlock(null);
+  }, []);
 
   const handleLock = async (block) => {
     try {
@@ -85,9 +289,8 @@ export default function TimetableView() {
     } catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
   };
 
-  // Inline edit
   const openBlockEdit = (block) => {
-    if (!editMode && !block) return;
+    if (!block) return;
     setEditBlock(block);
     setEditData({
       subject: block?.subject?._id || '',
@@ -116,101 +319,42 @@ export default function TimetableView() {
     finally { setEditSaving(false); }
   };
 
-  // Drag and Drop handlers
-  const handleDragStart = (e, block, day, period) => {
-    if (!editMode || block?.isLocked) return;
-    setDragSource({ block, day, period });
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', JSON.stringify({ blockId: block?._id, day, period }));
-    // Add visual feedback
-    if (e.target) e.target.style.opacity = '0.5';
-  };
-
-  const handleDragEnd = (e) => {
-    if (e.target) e.target.style.opacity = '1';
-    setDragSource(null);
-    setDragOverTarget(null);
-  };
-
-  const handleDragOver = (e, day, period) => {
-    if (!editMode) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOverTarget({ day, period });
-  };
-
-  const handleDragLeave = () => { setDragOverTarget(null); };
-
-  const handleDrop = async (e, targetDay, targetPeriod) => {
-    e.preventDefault();
-    setDragOverTarget(null);
-    if (!editMode || !dragSource) return;
-
-    const sourceBlock = dragSource.block;
-    const targetBlock = getBlock(targetDay, targetPeriod);
-
-    if (targetBlock?.isLocked) {
-      toast.error('Target slot is locked');
-      setDragSource(null);
-      return;
-    }
-
-    if (sourceBlock?._id === targetBlock?._id) {
-      setDragSource(null);
-      return;
-    }
-
-    const swap = {
-      sourceBlock: sourceBlock?._id,
-      sourceDay: dragSource.day,
-      sourcePeriod: dragSource.period,
-      targetBlock: targetBlock?._id,
-      targetDay,
-      targetPeriod,
-      sourceLabel: sourceBlock?.subject?.name || 'Empty',
-      targetLabel: targetBlock?.subject?.name || 'Empty'
-    };
-
-    setPendingSwaps(prev => [...prev, swap]);
-    toast(`Swap queued: ${swap.sourceLabel} ↔ ${swap.targetLabel}`, { icon: '🔄' });
-    setDragSource(null);
-  };
-
   const saveSwaps = async () => {
     if (pendingSwaps.length === 0) return;
     setSaving(true);
+    let successCount = 0;
     try {
       for (const swap of pendingSwaps) {
         if (swap.sourceBlock && swap.targetBlock) {
-          await api.post('/timetable/swap', {
-            blockAId: swap.sourceBlock,
-            blockBId: swap.targetBlock
-          });
+          await api.post('/timetable/swap', { blockAId: swap.sourceBlock, blockBId: swap.targetBlock });
         } else if (swap.sourceBlock) {
-          await api.put(`/timetable/block/${swap.sourceBlock}`, {
-            day: swap.targetDay,
-            period: swap.targetPeriod
+          await api.put(`/timetable/block/${swap.sourceBlock}/move`, {
+            day: swap.targetDay, period: swap.targetPeriod
           });
         }
+        successCount++;
       }
-      toast.success(`Applied ${pendingSwaps.length} swap(s)`);
+      toast.success(`Applied ${successCount} swap(s)`);
       setPendingSwaps([]);
       loadBlocks();
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Swap failed - conflict detected');
+      toast.error(`${successCount} applied, then: ${err.response?.data?.error || 'Conflict detected'}`);
+      loadBlocks();
     } finally { setSaving(false); }
   };
 
   const cancelSwaps = () => { setPendingSwaps([]); toast('Swaps cancelled'); };
 
-  const periods = Array.from({ length: maxPeriod }, (_, i) => i + 1);
-
-  const isDragTarget = (day, period) => dragOverTarget?.day === day && dragOverTarget?.period === period;
-
   // Count stats
   const totalBlocks = blocks.filter(b => b.type !== 'reserved').length;
   const lockedBlocks = blocks.filter(b => b.isLocked).length;
   const consecutiveGroups = [...new Set(blocks.filter(b => b.consecutiveGroupId).map(b => b.consecutiveGroupId))].length;
+
+  // Visible working days
+  const visibleDays = useMemo(() => {
+    const daysWithBlocks = new Set(blocks.map(b => b.day));
+    return DAYS.filter(d => daysWithBlocks.has(d) || d !== 'Saturday');
+  }, [blocks]);
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -235,20 +379,30 @@ export default function TimetableView() {
             : <select value={selectedTeacher} onChange={e => setSelectedTeacher(e.target.value)} className="select-field w-44 text-xs"><option value="">Select</option>{teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}</select>
           }
           <button onClick={loadBlocks} className="btn-secondary p-2" title="Refresh"><RefreshCw size={14} /></button>
-          <button onClick={() => { setEditMode(!editMode); setPendingSwaps([]); }}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${editMode ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30' : 'btn-secondary'}`}>
-            {editMode ? <X size={14} /> : <Edit3 size={14} />}
-            {editMode ? 'Exit Edit' : 'Edit Mode'}
+          <button onClick={() => setShowCompact(!showCompact)} className="btn-secondary p-2" title={showCompact ? 'Expand' : 'Compact'}>
+            {showCompact ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
+          <PermissionGate permissions={['edit_timetable']}>
+            <button onClick={() => { setEditMode(!editMode); setPendingSwaps([]); }}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${editMode ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30' : 'btn-secondary'}`}>
+              {editMode ? <X size={14} /> : <Edit3 size={14} />}
+              {editMode ? 'Exit Edit' : 'Edit Mode'}
+            </button>
+          </PermissionGate>
         </div>
       </div>
 
       {/* Stats Bar */}
       {blocks.length > 0 && (
-        <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-dark-400">
+        <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-dark-400 flex-wrap">
           <span className="flex items-center gap-1"><BookOpen size={12} /> {totalBlocks} periods</span>
           <span className="flex items-center gap-1"><Lock size={12} /> {lockedBlocks} locked</span>
-          {consecutiveGroups > 0 && <span className="flex items-center gap-1 text-purple-500">⚡ {consecutiveGroups} consecutive groups</span>}
+          {consecutiveGroups > 0 && <span className="flex items-center gap-1 text-purple-500">⚡ {consecutiveGroups} consecutive</span>}
+          {highlightTeacher && (
+            <button onClick={() => setHighlightTeacher(null)} className="flex items-center gap-1 text-blue-500 hover:text-blue-400">
+              <X size={12} /> Clear highlight
+            </button>
+          )}
         </div>
       )}
 
@@ -261,7 +415,7 @@ export default function TimetableView() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Edit Mode Active</p>
             <p className="text-[11px] text-amber-600 dark:text-amber-400/70">
-              <strong>Drag</strong> cells to swap positions · <strong>Click</strong> any cell to edit subject, teacher, or room
+              <strong>Drag</strong> cells to swap positions · <strong>Click</strong> any cell to edit · Conflicts checked in real-time
               {pendingSwaps.length > 0 && <span className="text-amber-700 dark:text-amber-300 font-semibold"> · {pendingSwaps.length} swap(s) pending</span>}
             </p>
           </div>
@@ -270,14 +424,14 @@ export default function TimetableView() {
               <button onClick={cancelSwaps} className="btn-secondary text-xs px-3 py-1.5">Cancel</button>
               <button onClick={saveSwaps} disabled={saving} className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1">
                 {saving ? <Loader2 className="animate-spin" size={12} /> : <Save size={12} />}
-                Apply Swaps
+                Apply
               </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Pending swaps list */}
+      {/* Pending swaps */}
       {pendingSwaps.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {pendingSwaps.map((s, i) => (
@@ -292,119 +446,79 @@ export default function TimetableView() {
         </div>
       )}
 
-      {/* Timetable Grid */}
+      {/* ═══════════════ TIMETABLE GRID WITH DND-KIT ═══════════════ */}
       {!selectedTT ? (
         <div className="glass-card p-12 text-center text-slate-500 dark:text-dark-400">
           No timetable generated yet. Go to Generator first.
         </div>
       ) : loading ? (
-        <div className="glass-card p-12 text-center"><Loader2 className="animate-spin mx-auto text-primary-500" size={24} /></div>
-      ) : (
-        <div className="glass-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px]">
-              <thead>
-                <tr className="table-header">
-                  <th className="px-3 py-2.5 text-left w-20 text-xs sticky left-0 bg-slate-100 dark:bg-dark-800 z-10">Period</th>
-                  {DAYS.map(d => <th key={d} className="px-3 py-2.5 text-center text-xs">{d.slice(0,3)}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {periods.map(p => {
-                  const brk = isBreak(p);
-                  return (
-                    <tr key={p} className={`border-t border-slate-200/60 dark:border-dark-700/40 ${brk ? 'bg-amber-50/50 dark:bg-amber-500/5' : ''}`}>
-                      <td className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-dark-300 sticky left-0 bg-white dark:bg-dark-900 z-10">
-                        {brk ? '☕ Break' : `P${p}`}
-                      </td>
-                      {DAYS.map(d => {
-                        if (brk) return <td key={d} className="px-2 py-1.5 text-center text-[10px] text-amber-400/60">Break</td>;
-                        const block = getBlock(d, p);
-                        const isTarget = isDragTarget(d, p);
-                        const isConsec = block && isConsecutiveGroup(block);
-                        const peers = block ? getConsecutivePeers(block) : [];
-                        const isSource = dragSource?.block?._id === block?._id;
-
-                        if (!block) return (
-                          <td key={d} className="px-2 py-1.5"
-                            onDragOver={e => handleDragOver(e, d, p)}
-                            onDragLeave={handleDragLeave}
-                            onDrop={e => handleDrop(e, d, p)}>
-                            <div className={`p-2 rounded-lg text-center min-h-[60px] flex items-center justify-center transition-all duration-200
-                              ${isTarget ? 'border-2 border-dashed border-primary-400 bg-primary-50 dark:bg-primary-900/20 scale-[1.03] shadow-md' : 'border border-dashed border-slate-200/80 dark:border-dark-700/40 bg-slate-50/30 dark:bg-dark-800/20'}
-                              ${editMode ? 'cursor-pointer hover:border-primary-300 hover:bg-primary-50/50 dark:hover:bg-primary-900/10' : ''}`}
-                              onClick={() => editMode && openBlockEdit(null)}>
-                              {isTarget ? (
-                                <span className="text-primary-500 font-medium text-xs animate-pulse">↓ Drop here</span>
-                              ) : editMode ? (
-                                <span className="text-slate-300 dark:text-dark-600 text-[10px]">+ Add</span>
-                              ) : (
-                                <span className="text-slate-300 dark:text-dark-600 text-[10px]">—</span>
-                              )}
-                            </div>
-                          </td>
-                        );
-
-                        return (
-                          <td key={d} className="px-2 py-1.5">
-                            <div
-                              draggable={editMode && !block.isLocked}
-                              onDragStart={e => handleDragStart(e, block, d, p)}
-                              onDragEnd={handleDragEnd}
-                              onDragOver={e => handleDragOver(e, d, p)}
-                              onDragLeave={handleDragLeave}
-                              onDrop={e => handleDrop(e, d, p)}
-                              onClick={() => openBlockEdit(block)}
-                              className={`p-2 rounded-xl text-[10px] relative min-h-[60px] transition-all duration-200 group
-                                ${editMode && !block.isLocked ? 'cursor-grab active:cursor-grabbing hover:shadow-lg hover:scale-[1.03] hover:-translate-y-0.5' : 'cursor-pointer hover:shadow-sm'}
-                                ${block.isLocked ? 'opacity-80 ring-1 ring-amber-400/30' : ''}
-                                ${isTarget ? 'ring-2 ring-primary-400 shadow-lg scale-[1.03]' : ''}
-                                ${isSource ? 'opacity-40 scale-95' : ''}
-                                ${isConsec ? 'border-l-4' : 'border-l-[3px]'}`}
-                              style={{
-                                backgroundColor: (block.subject?.color || '#6366f1') + '15',
-                                borderLeftColor: block.subject?.color || '#6366f1'
-                              }}>
-
-                              {/* Drag handle - visible in edit mode */}
-                              {editMode && !block.isLocked && (
-                                <div className="absolute top-1 left-1 opacity-40 group-hover:opacity-100 transition-opacity">
-                                  <GripVertical size={10} className="text-slate-400 dark:text-dark-500" />
-                                </div>
-                              )}
-
-                              <p className="font-semibold text-slate-800 dark:text-dark-50 truncate text-xs pl-3">{block.subject?.name || 'Free'}</p>
-                              <p className="text-slate-500 dark:text-dark-400 truncate pl-3">{block.teacher?.shortName || block.teacher?.name || ''}</p>
-                              <p className="text-slate-400 dark:text-dark-500 truncate pl-3">{block.room?.name || ''}</p>
-                              {block.studentGroup && <span className="text-[8px] text-purple-500 dark:text-purple-400 pl-3">👥 {block.studentGroup}</span>}
-
-                              {/* Indicators */}
-                              <div className="absolute top-1 right-1 flex gap-0.5 items-center">
-                                {block.isLocked && <span className="text-[8px]" title="Locked">🔒</span>}
-                                {block.type === 'combined_class' && <span className="text-[8px]" title="Combined class">🔗</span>}
-                                {isConsec && (
-                                  <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-500/10 text-[7px] text-purple-500 font-medium" title={`Consecutive group (${peers.length + 1} periods)`}>
-                                    ⚡{peers.length + 1}
-                                  </span>
-                                )}
-                                {editMode && !block.isLocked && <PenSquare size={10} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
-                              </div>
-
-                              <button onClick={(e) => { e.stopPropagation(); handleLock(block); }}
-                                className="absolute bottom-1 right-1 opacity-0 group-hover:opacity-100 p-0.5 transition-opacity">
-                                {block.isLocked ? <Unlock size={10} className="text-amber-400" /> : <Lock size={10} className="text-slate-400" />}
-                              </button>
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div className="glass-card p-12 text-center">
+          <Loader2 className="animate-spin mx-auto text-primary-500" size={24} />
+          <p className="text-sm text-slate-400 mt-2">Loading timetable...</p>
         </div>
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
+        >
+          <div className="glass-card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px]">
+                <thead>
+                  <tr className="table-header">
+                    <th className="px-2 py-2.5 text-left w-16 text-xs sticky left-0 bg-slate-100 dark:bg-dark-800 z-10">Period</th>
+                    {visibleDays.map(d => (
+                      <th key={d} className="px-2 py-2.5 text-center text-xs">{DAY_SHORT[d]}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {periods.map(p => {
+                    const brk = isBreak(p);
+                    return (
+                      <tr key={p} className={`border-t border-slate-200/60 dark:border-dark-700/40 ${brk ? 'bg-amber-50/50 dark:bg-amber-500/5' : ''}`}>
+                        <td className="px-2 py-1 text-xs font-medium text-slate-600 dark:text-dark-300 sticky left-0 bg-white dark:bg-dark-900 z-10 whitespace-nowrap">
+                          {brk ? '☕' : `P${p}`}
+                        </td>
+                        {visibleDays.map(d => {
+                          if (brk) return <td key={d} className="px-1.5 py-1 text-center text-[10px] text-amber-400/60">Break</td>;
+                          const block = getBlock(d, p);
+                          const cellId = `${d}-${p}`;
+                          const isHighlighted = highlightTeacher && block?.teacher?._id === highlightTeacher;
+
+                          return (
+                            <DroppableCell key={d} id={cellId} day={d} period={p} editMode={editMode}>
+                              {block && (
+                                <DraggableBlock
+                                  id={`block-${block._id}-${d}-${p}`}
+                                  block={block}
+                                  day={d}
+                                  period={p}
+                                  editMode={editMode}
+                                  onEdit={openBlockEdit}
+                                  onLock={handleLock}
+                                  isHighlighted={isHighlighted}
+                                />
+                              )}
+                            </DroppableCell>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Drag overlay — floating block preview */}
+          <DragOverlay dropAnimation={{ duration: 200, easing: 'ease' }}>
+            {activeBlock && <DragOverlayBlock block={activeBlock} />}
+          </DragOverlay>
+        </DndContext>
       )}
 
       {/* Legend */}
@@ -420,21 +534,50 @@ export default function TimetableView() {
         )}
       </div>
 
-      {/* Inline Edit Modal */}
+      {/* ═══════════════ CONFLICT PREVIEW MODAL ═══════════════ */}
+      {moveConflicts && (
+        <Modal isOpen={!!moveConflicts} onClose={() => setMoveConflicts(null)} title="Move Conflict Detected" size="sm">
+          <div className="space-y-4">
+            <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/30">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-red-700 dark:text-red-300">Cannot move "{moveConflicts.source?.subject?.name}"</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {moveConflicts.conflicts.map((c, i) => (
+                      <li key={i} className="text-xs text-red-600 dark:text-red-400">• {c}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+            {moveConflicts.warnings?.length > 0 && (
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30">
+                <p className="text-xs text-amber-700 dark:text-amber-400 font-medium mb-1">Warnings:</p>
+                {moveConflicts.warnings.map((w, i) => (
+                  <p key={i} className="text-xs text-amber-600 dark:text-amber-400">• {w}</p>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setMoveConflicts(null)} className="btn-secondary w-full text-sm">Dismiss</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ═══════════════ INLINE EDIT MODAL ═══════════════ */}
       {editBlock && (
         <Modal isOpen={!!editBlock} onClose={() => setEditBlock(null)} title={`Edit Period: ${editBlock.day} P${editBlock.periods?.[0]}`}>
           <div className="space-y-4">
             {/* Current info card */}
             <div className="p-3 rounded-xl border border-slate-200 dark:border-dark-700 text-xs" style={{
               background: editBlock.subject?.color ? `${editBlock.subject.color}08` : undefined,
-              borderLeftWidth: '4px',
-              borderLeftColor: editBlock.subject?.color || '#6366f1'
+              borderLeftWidth: '4px', borderLeftColor: editBlock.subject?.color || '#6366f1'
             }}>
               <p className="text-sm font-semibold text-slate-800 dark:text-dark-100 mb-1">{editBlock.subject?.name || 'Unassigned'}</p>
               <div className="flex flex-wrap gap-3 text-slate-500 dark:text-dark-400">
                 <span>👤 {editBlock.teacher?.name || 'No teacher'}</span>
                 <span>🏠 {editBlock.room?.name || 'No room'}</span>
-                <span>📅 {editBlock.day}, Period {editBlock.periods?.[0]}</span>
+                <span>📅 {editBlock.day}, P{editBlock.periods?.[0]}</span>
               </div>
             </div>
 
@@ -443,7 +586,7 @@ export default function TimetableView() {
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1.5 block font-medium flex items-center gap-1.5">
                 <BookOpen size={13} className="text-primary-500" /> Subject
               </label>
-              <select value={editData.subject} onChange={e => setEditData({...editData, subject: e.target.value})} className="select-field text-sm">
+              <select value={editData.subject} onChange={e => setEditData({ ...editData, subject: e.target.value })} className="select-field text-sm">
                 <option value="">— Keep current —</option>
                 {subjects.filter(s => s.isActive !== false).map(s => (
                   <option key={s._id} value={s._id}>{s.name} ({s.code})</option>
@@ -454,7 +597,7 @@ export default function TimetableView() {
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1.5 block font-medium flex items-center gap-1.5">
                 <Users size={13} className="text-emerald-500" /> Teacher
               </label>
-              <select value={editData.teacher} onChange={e => setEditData({...editData, teacher: e.target.value})} className="select-field text-sm">
+              <select value={editData.teacher} onChange={e => setEditData({ ...editData, teacher: e.target.value })} className="select-field text-sm">
                 <option value="">— Keep current —</option>
                 {teachers.filter(t => t.status === 'active').map(t => (
                   <option key={t._id} value={t._id}>{t.name}{t.shortName ? ` (${t.shortName})` : ''} — {t.department || ''}</option>
@@ -465,7 +608,7 @@ export default function TimetableView() {
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1.5 block font-medium flex items-center gap-1.5">
                 <DoorOpen size={13} className="text-amber-500" /> Room
               </label>
-              <select value={editData.room} onChange={e => setEditData({...editData, room: e.target.value})} className="select-field text-sm">
+              <select value={editData.room} onChange={e => setEditData({ ...editData, room: e.target.value })} className="select-field text-sm">
                 <option value="">— Keep current —</option>
                 {rooms.filter(r => r.isActive !== false).map(r => (
                   <option key={r._id} value={r._id}>{r.name} ({r.type}, cap: {r.capacity || '?'})</option>
@@ -486,6 +629,21 @@ export default function TimetableView() {
                 <p className="text-xs text-purple-700 dark:text-purple-400">Part of a consecutive group — changes may affect linked periods.</p>
               </div>
             )}
+
+            {/* Edit history link */}
+            <button
+              onClick={async () => {
+                try {
+                  const res = await api.get(`/timetable/block/${editBlock._id}/edit-history`);
+                  const history = res.data?.data || [];
+                  if (history.length === 0) toast('No edit history', { icon: '📋' });
+                  else toast(`${history.length} edits recorded`, { icon: '📋' });
+                } catch { /* silent */ }
+              }}
+              className="text-xs text-slate-400 hover:text-primary-500 flex items-center gap-1 transition-colors"
+            >
+              <History size={12} /> View edit history
+            </button>
 
             <div className="flex justify-end gap-3 pt-2">
               <button onClick={() => setEditBlock(null)} className="btn-secondary text-sm">Cancel</button>

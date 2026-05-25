@@ -17,4 +17,6 @@ const reservedPeriodRuleSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
+reservedPeriodRuleSchema.index({ school: 1, session: 1, isActive: 1, day: 1 });
+
 module.exports = mongoose.model('ReservedPeriodRule', reservedPeriodRuleSchema);
