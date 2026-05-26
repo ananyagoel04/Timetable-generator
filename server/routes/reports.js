@@ -3,6 +3,12 @@ const router = express.Router();
 const { authorize } = require('../middleware/auth');
 const rc = require('../controllers/reportController');
 
+// ─── Query-param based report endpoints (test-suite & frontend compatible) ───
+router.get('/class-timetable', authorize('view_timetable', 'export_reports'), rc.getClassTimetableReport);
+router.get('/teacher-timetable', authorize('view_timetable', 'export_reports'), rc.getTeacherTimetableReport);
+router.get('/substitution-report', authorize('view_timetable', 'export_reports'), rc.getSubstitutionReport);
+
+// ─── Existing endpoints ───
 router.get('/day-wise', authorize('view_timetable', 'export_reports'), rc.getDayWiseReport);
 router.get('/class-weekly/:classId', authorize('view_timetable', 'export_reports'), rc.getClassWeeklyReport);
 router.get('/teacher-weekly/:teacherId', authorize('view_timetable', 'export_reports'), rc.getTeacherWeeklyReport);
@@ -13,5 +19,8 @@ router.get('/replacement-report', authorize('view_timetable', 'export_reports', 
 router.get('/teacher-workload', authorize('view_timetable', 'export_reports'), rc.getTeacherWorkloadReport);
 router.get('/subject-distribution', authorize('view_timetable', 'export_reports'), rc.getSubjectDistributionReport);
 router.get('/room-utilization', authorize('view_timetable', 'export_reports'), rc.getRoomUtilizationReport);
+router.get('/conflict-report', authorize('view_timetable', 'export_reports'), rc.getConflictReport);
+router.get('/quality-report', authorize('view_timetable', 'export_reports'), rc.getQualityReport);
+router.get('/subject-completion', authorize('view_timetable', 'export_reports'), rc.getSubjectCompletionReport);
 
 module.exports = router;

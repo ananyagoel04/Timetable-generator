@@ -123,6 +123,32 @@ export default function Reports() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadPDF = async () => {
+    try {
+      let url = '';
+      if (tab === 'class-weekly' && selectedClass) {
+        url = `/export/timetable/pdf?timetableId=${selectedTT}&classId=${selectedClass}`;
+      } else if (tab === 'teacher-weekly' && selectedTeacher) {
+        url = `/export/timetable/teacher-pdf?timetableId=${selectedTT}&teacherId=${selectedTeacher}`;
+      } else if (tab === 'day-wise') {
+        url = `/export/timetable/pdf?timetableId=${selectedTT}`;
+      } else if (tab === 'replacement') {
+        url = `/export/daily-sheet/pdf?date=${replacementDate}`;
+      } else {
+        return toast.error('Select a valid report to export');
+      }
+      toast.loading('Generating PDF...', { id: 'pdf' });
+      const res = await api.get(url, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `report_${tab}_${Date.now()}.pdf`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      toast.success('PDF downloaded!', { id: 'pdf' });
+    } catch (err) { toast.error('PDF export failed: ' + (err.response?.data?.error || err.message), { id: 'pdf' }); }
+  };
+
   const handlePrint = () => {
     const nameClass = printConfig.nameFormat === 'alias' ? 'use-alias' : printConfig.nameFormat === 'short' ? 'use-short-name' : '';
     const fontClass = printConfig.fontSize === 'small' ? 'print-font-small' : printConfig.fontSize === 'large' ? 'print-font-large' : '';
@@ -150,6 +176,7 @@ export default function Reports() {
         <div><h1 className="page-title">Reports</h1><p className="page-subtitle">Generate, view, and export timetable reports</p></div>
         <div className="flex gap-2">
           <button onClick={() => setShowPrintModal(true)} className="btn-secondary flex items-center gap-2 text-sm"><Printer size={14} /> Print</button>
+          <button onClick={downloadPDF} className="btn-secondary flex items-center gap-2 text-sm"><Download size={14} /> PDF</button>
           <button onClick={exportCSV} className="btn-primary flex items-center gap-2 text-sm"><Download size={14} /> CSV</button>
         </div>
       </div>

@@ -3,10 +3,22 @@ const Room = require('../models/Room');
 exports.getRooms = async (req, res, next) => {
   try {
     if (!req.schoolId) return res.status(400).json({ success: false, error: 'School context required' });
-    const rooms = await Room.find({ school: req.schoolId }).sort({ roomNumber: 1 });
-    res.json({ success: true, count: rooms.length, data: rooms });
+    const filter = { school: req.schoolId };
+
+    const page = parseInt(req.query.page) || 0;
+    const limit = parseInt(req.query.limit) || 0;
+
+    let query = Room.find(filter).sort({ roomNumber: 1 });
+    if (page > 0 && limit > 0) {
+      query = query.skip((page - 1) * limit).limit(limit);
+    }
+    const rooms = await query;
+    const total = (page > 0 && limit > 0) ? await Room.countDocuments(filter) : rooms.length;
+
+    res.json({ success: true, count: rooms.length, total, page: page || 1, data: rooms });
   } catch (err) { next(err); }
 };
+
 
 exports.getRoom = async (req, res, next) => {
   try {

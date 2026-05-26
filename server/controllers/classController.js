@@ -5,11 +5,22 @@ exports.getClasses = async (req, res, next) => {
     if (!req.schoolId) return res.status(400).json({ success: false, error: 'School context required' });
     const filter = { school: req.schoolId };
     if (req.sessionId) filter.session = req.sessionId;
-    const classes = await Class.find(filter)
+
+    const page = parseInt(req.query.page) || 0;
+    const limit = parseInt(req.query.limit) || 0;
+
+    let query = Class.find(filter)
       .populate('classTeacher roomPreference periodStructure').sort({ grade: 1, section: 1 });
-    res.json({ success: true, count: classes.length, data: classes });
+    if (page > 0 && limit > 0) {
+      query = query.skip((page - 1) * limit).limit(limit);
+    }
+    const classes = await query;
+    const total = (page > 0 && limit > 0) ? await Class.countDocuments(filter) : classes.length;
+
+    res.json({ success: true, count: classes.length, total, page: page || 1, data: classes });
   } catch (err) { next(err); }
 };
+
 
 exports.getClass = async (req, res, next) => {
   try {

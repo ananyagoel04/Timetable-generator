@@ -10,6 +10,26 @@ services:
       - mongo_data:/data/db
     environment:
       MONGO_INITDB_DATABASE: school_timetable
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: timecraft-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   server:
     build:
@@ -23,10 +43,30 @@ services:
       - NODE_ENV=production
       - PORT=5001
       - MONGODB_URI=mongodb://mongodb:27017/school_timetable
+      - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - server_logs:/app/logs
+
+  nginx:
+    image: nginx:alpine
+    container_name: timecraft-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./client/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - server
 
 volumes:
   mongo_data:
+  redis_data:
+  server_logs:

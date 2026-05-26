@@ -5,6 +5,8 @@ const ctrl = require('../controllers/absenceController');
 
 router.get('/', authorize('view_timetable', 'manage_absences'), ctrl.getAbsences);
 router.get('/unresolved', authorize('manage_absences', 'edit_timetable'), ctrl.getUnresolvedPeriods);
+// suggest-substitutes MUST be before /:id to prevent Express treating it as an ObjectId
+router.get('/suggest-substitutes', authorize('manage_absences', 'view_timetable'), require('./absencesSuggestSubstitutes'));
 router.post('/', authorize('manage_absences'), ctrl.createAbsence);
 router.get('/:id', authorize('view_timetable', 'manage_absences'), ctrl.getAbsenceDetail);
 router.put('/:id/cancel', authorize('manage_absences'), ctrl.cancelAbsence);

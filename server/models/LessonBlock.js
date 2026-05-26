@@ -5,10 +5,12 @@ const lessonBlockSchema = new mongoose.Schema({
   timetable: { type: mongoose.Schema.Types.ObjectId, ref: 'GeneratedTimetable', required: true },
   type: {
     type: String,
-    enum: ['normal', 'double_period', 'lab', 'activity', 'club', 'reserved',
+    enum: ['normal', 'double_period', 'triple_lab', 'lab', 'activity', 'club', 'reserved',
            'combined_class', 'split_group', 'substitution', 'locked_manual', 'free'],
     required: true
   },
+  // Duration in periods (1=single, 2=double, 3=triple lab, etc.)
+  duration: { type: Number, default: 1, min: 1, max: 4 },
   subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject' },
   teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'Teacher' },
   room: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
@@ -32,9 +34,24 @@ const lessonBlockSchema = new mongoose.Schema({
   warnings: [{ type: String }],
   // Linked blocks (for double periods, parallel split groups)
   linkedBlockId: { type: mongoose.Schema.Types.ObjectId, ref: 'LessonBlock' },
-  // Consecutive period grouping
+  // Consecutive period grouping (DEPRECATED — use periods[] array with duration instead)
   consecutiveGroupId: { type: mongoose.Schema.Types.ObjectId },
   consecutivePosition: { type: Number },
+  // Group context (for split-group scheduling)
+  groupContext: {
+    studentGroup: { type: mongoose.Schema.Types.ObjectId, ref: 'StudentGroup' },
+    groupName: { type: String, trim: true },
+    isParallel: { type: Boolean, default: false }
+  },
+  // Combined context (for combined-class blocks)
+  combinedContext: {
+    isCombined: { type: Boolean, default: false },
+    primaryClass: { type: mongoose.Schema.Types.ObjectId, ref: 'Class' },
+    combinationRule: { type: mongoose.Schema.Types.ObjectId, ref: 'SubjectCombinationRule' }
+  },
+  // Scheduling metadata
+  priorityWeight: { type: Number, default: 50 },
+  generationSeed: { type: String, trim: true },
   // Edit history for post-generation modifications
   editHistory: [{
     action: { type: String, required: true }, // 'move', 'swap', 'reassign_teacher', 'reassign_room', 'lock', 'unlock'

@@ -284,22 +284,88 @@ class TimetableEditor {
         LessonBlock.findById(action.blockBId)
       ]);
       if (!blockA || !blockB) return { success: false, error: 'Blocks no longer exist' };
+      const currentA = { day: blockA.day, periods: [...blockA.periods] };
+      const currentB = { day: blockB.day, periods: [...blockB.periods] };
       blockA.day = action.before.day; blockA.periods = action.before.periods;
       blockB.day = action.beforeB.day; blockB.periods = action.beforeB.periods;
       await blockA.save(); await blockB.save();
+      this._redoStack.push({ ...action, before: currentA, beforeB: currentB });
     } else if (action.type === 'reassign_teacher') {
       const block = await LessonBlock.findById(action.blockId);
       if (!block) return { success: false, error: 'Block no longer exists' };
+      const currentTeacher = block.teacher;
       block.teacher = action.before.teacher;
+      block.editHistory.push({ action: 'undo_reassign_teacher', before: { teacher: currentTeacher }, after: action.before, userId, timestamp: new Date() });
       await block.save();
+      this._redoStack.push({ ...action, before: { teacher: currentTeacher } });
     } else if (action.type === 'reassign_room') {
       const block = await LessonBlock.findById(action.blockId);
       if (!block) return { success: false, error: 'Block no longer exists' };
+      const currentRoom = block.room;
       block.room = action.before.room;
+      block.editHistory.push({ action: 'undo_reassign_room', before: { room: currentRoom }, after: action.before, userId, timestamp: new Date() });
       await block.save();
+      this._redoStack.push({ ...action, before: { room: currentRoom } });
     }
 
     return { success: true, undoRemaining: this._undoStack.length, redoAvailable: this._redoStack.length };
+  }
+
+  async redo(userId) {
+    if (this._redoStack.length === 0) return { success: false, error: 'Nothing to redo' };
+    const action = this._redoStack.pop();
+
+    if (action.type === 'move') {
+      const block = await LessonBlock.findById(action.blockId);
+      if (!block) return { success: false, error: 'Block no longer exists' };
+      const currentState = { day: block.day, periods: [...block.periods] };
+      // Redo = apply the original "after" state (the before in redo entry is the current state before undo)
+      // We need to move to where it was before undo reversed it
+      block.day = action.before.day;
+      block.periods = action.before.periods;
+      block.editHistory.push({ action: 'redo_move', before: currentState, after: action.before, userId, timestamp: new Date() });
+      await block.save();
+      this._undoStack.push({ ...action, before: currentState });
+    } else if (action.type === 'swap') {
+      const [blockA, blockB] = await Promise.all([
+        LessonBlock.findById(action.blockId),
+        LessonBlock.findById(action.blockBId)
+      ]);
+      if (!blockA || !blockB) return { success: false, error: 'Blocks no longer exist' };
+      const currentA = { day: blockA.day, periods: [...blockA.periods] };
+      const currentB = { day: blockB.day, periods: [...blockB.periods] };
+      blockA.day = action.before.day; blockA.periods = action.before.periods;
+      blockB.day = action.beforeB.day; blockB.periods = action.beforeB.periods;
+      await blockA.save(); await blockB.save();
+      this._undoStack.push({ ...action, before: currentA, beforeB: currentB });
+    } else if (action.type === 'reassign_teacher') {
+      const block = await LessonBlock.findById(action.blockId);
+      if (!block) return { success: false, error: 'Block no longer exists' };
+      const currentTeacher = block.teacher;
+      block.teacher = action.before.teacher;
+      await block.save();
+      this._undoStack.push({ ...action, before: { teacher: currentTeacher } });
+    } else if (action.type === 'reassign_room') {
+      const block = await LessonBlock.findById(action.blockId);
+      if (!block) return { success: false, error: 'Block no longer exists' };
+      const currentRoom = block.room;
+      block.room = action.before.room;
+      await block.save();
+      this._undoStack.push({ ...action, before: { room: currentRoom } });
+    }
+
+    return { success: true, undoRemaining: this._undoStack.length, redoAvailable: this._redoStack.length };
+  }
+
+  getUndoStatus() {
+    const lastAction = this._undoStack.length > 0 ? this._undoStack[this._undoStack.length - 1] : null;
+    const lastRedo = this._redoStack.length > 0 ? this._redoStack[this._redoStack.length - 1] : null;
+    return {
+      undoCount: this._undoStack.length,
+      redoCount: this._redoStack.length,
+      lastUndoAction: lastAction ? lastAction.type : null,
+      lastRedoAction: lastRedo ? lastRedo.type : null
+    };
   }
 
   async getEditHistory(blockId) {
@@ -356,3 +422,4 @@ class TimetableEditor {
 }
 
 module.exports = TimetableEditor;
+

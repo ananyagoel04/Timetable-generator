@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, ArrowRight, CheckCircle, AlertTriangle, Users } from 'lucide-react';
+import { Plus, ArrowRight, CheckCircle, AlertTriangle, Users, Loader2, BarChart3, Zap } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
 import toast from 'react-hot-toast';
@@ -18,6 +18,9 @@ export default function TeacherReplacements() {
   const [replType, setReplType] = useState('permanent');
   const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
   const [suggestions, setSuggestions] = useState([]);
+  const [preview, setPreview] = useState(null);
+  const [applying, setApplying] = useState(false);
+  const [result, setResult] = useState(null);
 
   useEffect(() => {
     api.get('/teachers').then(r => setTeachers(r.data || []));
@@ -50,14 +53,36 @@ export default function TeacherReplacements() {
       return { ...t, matchCount, currentLoad, matchPercent: Math.round(matchCount / neededSubjects.length * 100) };
     }).sort((a, b) => b.matchPercent - a.matchPercent || a.currentLoad - b.currentLoad);
     setSuggestions(capable);
+    setPreview(null);
     setStep(2);
   };
 
-  const applyReplacement = async () => {
+  const fetchPreview = async (teacherId) => {
+    setNewTeacher(teacherId);
     try {
-      toast.success('Replacement applied (preview mode)');
-      setModalOpen(false);
-    } catch (err) { toast.error(err.message); }
+      const r = await api.post(`/teachers/${oldTeacher._id}/replace/preview`, {
+        assignmentIds: selected, newTeacherId: teacherId, type: replType
+      });
+      setPreview(r.data);
+    } catch { setPreview(null); }
+    setStep(3);
+  };
+
+  const applyReplacement = async () => {
+    setApplying(true);
+    try {
+      const r = await api.post(`/teachers/${oldTeacher._id}/replace`, {
+        assignmentIds: selected,
+        newTeacherId: newTeacher,
+        type: replType,
+        effectiveDate,
+        reason: `Replaced ${oldTeacher.name} with ${teachers.find(t => t._id === newTeacher)?.name}`
+      });
+      setResult(r.data);
+      setStep(4);
+      toast.success(`Replacement applied: ${r.data?.requirementsUpdated || 0} assignments, ${r.data?.blocksUpdated || 0} blocks updated`);
+    } catch (err) { toast.error(err.response?.data?.error || 'Replacement failed'); }
+    setApplying(false);
   };
 
   const getSubjectName = (id) => subjects.find(s => s._id === id)?.name || '?';
@@ -136,13 +161,13 @@ export default function TeacherReplacements() {
                 </label>
               ))}
             </div>
-            <div className="flex justify-between gap-3"><button onClick={() => setStep(1)} className="btn-secondary">← Back</button><button onClick={() => setStep(3)} disabled={!newTeacher} className="btn-primary">Preview →</button></div>
+            <div className="flex justify-between gap-3"><button onClick={() => setStep(1)} className="btn-secondary">← Back</button><button onClick={() => fetchPreview(newTeacher)} disabled={!newTeacher} className="btn-primary">Preview →</button></div>
           </div>
         )}
 
         {step === 3 && (
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold text-slate-900 dark:text-dark-50">Step 3: Review & Apply</h4>
+            <h4 className="text-sm font-semibold text-slate-900 dark:text-dark-50">Step 3: Impact Preview & Apply</h4>
             <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-4 space-y-2">
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-red-400">{oldTeacher?.name}</span>
@@ -158,11 +183,82 @@ export default function TeacherReplacements() {
                 </div>
               ))}
             </div>
-            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-start gap-2">
-              <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-amber-400">This will update the timetable. Affected periods will be re-optimized.</p>
+
+            {/* Preview Data */}
+            {preview && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="bg-slate-50 dark:bg-dark-800/60 rounded-lg p-2.5 text-center">
+                  <p className="text-lg font-bold text-blue-400">{preview.workloadAfter || 0}</p>
+                  <p className="text-[9px] text-slate-400 dark:text-dark-500">New Workload/wk</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-dark-800/60 rounded-lg p-2.5 text-center">
+                  <p className="text-lg font-bold text-purple-400">{preview.affectedBlocks || 0}</p>
+                  <p className="text-[9px] text-slate-400 dark:text-dark-500">Blocks Changed</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-dark-800/60 rounded-lg p-2.5 text-center">
+                  <p className={`text-lg font-bold ${preview.potentialConflicts > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{preview.potentialConflicts || 0}</p>
+                  <p className="text-[9px] text-slate-400 dark:text-dark-500">Conflicts</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-dark-800/60 rounded-lg p-2.5 text-center">
+                  <p className={`text-lg font-bold ${preview.allCapable ? 'text-emerald-400' : 'text-amber-400'}`}>{preview.allCapable ? '✓' : '⚠'}</p>
+                  <p className="text-[9px] text-slate-400 dark:text-dark-500">Capability</p>
+                </div>
+              </div>
+            )}
+
+            {preview?.potentialConflicts > 0 && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex items-start gap-2">
+                <AlertTriangle size={14} className="text-red-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-red-400">{preview.potentialConflicts} scheduling conflict(s) will be created. These can be resolved later in the Conflict Center.</p>
+              </div>
+            )}
+            {preview?.overloaded && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-start gap-2">
+                <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-400">New teacher will be overloaded ({preview.workloadAfter} periods/week). Consider distributing across teachers.</p>
+              </div>
+            )}
+
+            <div className="flex justify-between gap-3">
+              <button onClick={() => setStep(2)} className="btn-secondary">← Back</button>
+              <button onClick={applyReplacement} disabled={applying} className="btn-primary flex items-center gap-2">
+                {applying ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                {applying ? 'Applying...' : 'Apply Replacement'}
+              </button>
             </div>
-            <div className="flex justify-between gap-3"><button onClick={() => setStep(2)} className="btn-secondary">← Back</button><button onClick={applyReplacement} className="btn-primary flex items-center gap-2"><CheckCircle size={16} /> Apply Replacement</button></div>
+          </div>
+        )}
+
+        {step === 4 && result && (
+          <div className="space-y-4 text-center py-4">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-2xl shadow-emerald-500/30 mb-4">
+              <CheckCircle size={32} className="text-white" />
+            </div>
+            <h4 className="text-lg font-bold text-slate-900 dark:text-dark-50">Replacement Applied Successfully</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-w-md mx-auto">
+              <div className="bg-slate-50 dark:bg-dark-800/60 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-emerald-400">{result.requirementsUpdated}</p>
+                <p className="text-[9px] text-slate-400 dark:text-dark-500">Assignments</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-dark-800/60 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-blue-400">{result.blocksUpdated}</p>
+                <p className="text-[9px] text-slate-400 dark:text-dark-500">Blocks</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-dark-800/60 rounded-lg p-2.5 text-center">
+                <p className={`text-lg font-bold ${result.conflictsCreated > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{result.conflictsCreated}</p>
+                <p className="text-[9px] text-slate-400 dark:text-dark-500">Conflicts</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-dark-800/60 rounded-lg p-2.5 text-center">
+                <p className="text-lg font-bold text-purple-400">{result.substitutionsCreated}</p>
+                <p className="text-[9px] text-slate-400 dark:text-dark-500">Substitutions</p>
+              </div>
+            </div>
+            {result.conflictsCreated > 0 && (
+              <a href="/conflicts" className="text-xs text-red-400 hover:text-red-300 transition-colors">→ Review conflicts in Conflict Center</a>
+            )}
+            <div className="pt-2">
+              <button onClick={() => { setModalOpen(false); window.location.reload(); }} className="btn-primary">Done</button>
+            </div>
           </div>
         )}
       </Modal>

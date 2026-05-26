@@ -49,13 +49,18 @@ export default function Header() {
   const [showNotifications, setShowNotifications] = useState(false);
   const notifRef = useRef();
 
+  // Fetch notifications once on mount + poll every 5 minutes (not on every navigation)
   useEffect(() => {
     fetchNotifications();
+    const interval = setInterval(fetchNotifications, 5 * 60 * 1000);
     const handleClickOutside = (event) => {
       if (notifRef.current && !notifRef.current.contains(event.target)) setShowNotifications(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
   // Keyboard shortcut to open search

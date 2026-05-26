@@ -3,6 +3,7 @@ const GeneratedTimetable = require('../models/GeneratedTimetable');
 const ConflictLog = require('../models/ConflictLog');
 const SchedulerEngine = require('../services/schedulerEngine');
 const TimetableEditor = require('../services/timetableEditor');
+const GenerationJob = require('../services/engine/GenerationJob');
 const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
 
@@ -12,7 +13,44 @@ const getScope = async () => {
   return { schoolId: school?._id, sessionId: session?._id };
 };
 
+// Cache editor instances so undo/redo stacks persist across HTTP requests
+const _editorCache = new Map();
+function _getEditor(timetableId) {
+  const key = timetableId.toString();
+  if (!_editorCache.has(key)) {
+    _editorCache.set(key, new TimetableEditor(timetableId));
+    // Evict oldest if cache grows too large
+    if (_editorCache.size > 20) {
+      const firstKey = _editorCache.keys().next().value;
+      _editorCache.delete(firstKey);
+    }
+  }
+  return _editorCache.get(key);
+}
+
+
+// Background generation — returns immediately with jobId
 exports.generate = async (req, res, next) => {
+  try {
+    const { schoolId, sessionId } = await getScope();
+    if (!schoolId || !sessionId) return res.status(400).json({ success: false, error: 'School or session not configured' });
+
+    const job = new GenerationJob(schoolId, sessionId);
+    job.start();
+
+    res.json({
+      success: true,
+      data: {
+        jobId: job.jobId,
+        status: 'started',
+        message: 'Timetable generation started in background. Poll /api/timetable/job/:jobId for progress.'
+      }
+    });
+  } catch (err) { next(err); }
+};
+
+// Synchronous generation — for backward compatibility / testing
+exports.generateSync = async (req, res, next) => {
   try {
     const { schoolId, sessionId } = await getScope();
     if (!schoolId || !sessionId) return res.status(400).json({ success: false, error: 'School or session not configured' });
@@ -21,6 +59,16 @@ exports.generate = async (req, res, next) => {
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 };
+
+// Poll job status
+exports.getJobStatus = async (req, res, next) => {
+  try {
+    const job = GenerationJob.getJob(req.params.jobId);
+    if (!job) return res.status(404).json({ success: false, error: 'Job not found or expired' });
+    res.json({ success: true, data: job.toJSON() });
+  } catch (err) { next(err); }
+};
+
 
 exports.getTimetables = async (req, res, next) => {
   try {
@@ -160,7 +208,7 @@ exports.moveBlock = async (req, res, next) => {
     const { day, period, reason } = req.body;
     const block = await LessonBlock.findById(req.params.id);
     if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
-    const editor = new TimetableEditor(block.timetable);
+    const editor = _getEditor(block.timetable);
     const result = await editor.moveBlock(req.params.id, day, period, req.body.userId, reason);
     res.json(result);
   } catch (err) { next(err); }
@@ -171,7 +219,7 @@ exports.validateMove = async (req, res, next) => {
     const { day, period } = req.body;
     const block = await LessonBlock.findById(req.params.id);
     if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
-    const editor = new TimetableEditor(block.timetable);
+    const editor = _getEditor(block.timetable);
     const result = await editor.validateMove(req.params.id, day, period);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
@@ -182,7 +230,7 @@ exports.reassignTeacher = async (req, res, next) => {
     const { teacherId, reason } = req.body;
     const block = await LessonBlock.findById(req.params.id);
     if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
-    const editor = new TimetableEditor(block.timetable);
+    const editor = _getEditor(block.timetable);
     const result = await editor.reassignTeacher(req.params.id, teacherId, req.body.userId, reason);
     res.json(result);
   } catch (err) { next(err); }
@@ -193,7 +241,7 @@ exports.reassignRoom = async (req, res, next) => {
     const { roomId, reason } = req.body;
     const block = await LessonBlock.findById(req.params.id);
     if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
-    const editor = new TimetableEditor(block.timetable);
+    const editor = _getEditor(block.timetable);
     const result = await editor.reassignRoom(req.params.id, roomId, req.body.userId, reason);
     res.json(result);
   } catch (err) { next(err); }
@@ -203,8 +251,170 @@ exports.getEditHistory = async (req, res, next) => {
   try {
     const block = await LessonBlock.findById(req.params.id);
     if (!block) return res.status(404).json({ success: false, error: 'Block not found' });
-    const editor = new TimetableEditor(block.timetable);
+    const editor = _getEditor(block.timetable);
     const history = await editor.getEditHistory(req.params.id);
     res.json({ success: true, data: history });
+  } catch (err) { next(err); }
+};
+
+// ── Undo / Redo / Status ──
+exports.undo = async (req, res, next) => {
+  try {
+    const editor = _getEditor(req.params.timetableId);
+    const result = await editor.undo(req.user?._id);
+    res.json({ success: result.success, data: result });
+  } catch (err) { next(err); }
+};
+
+exports.redo = async (req, res, next) => {
+  try {
+    const editor = _getEditor(req.params.timetableId);
+    const result = await editor.redo(req.user?._id);
+    res.json({ success: result.success, data: result });
+  } catch (err) { next(err); }
+};
+
+exports.getUndoStatus = async (req, res, next) => {
+  try {
+    const editor = _getEditor(req.params.timetableId);
+    const status = editor.getUndoStatus();
+    res.json({ success: true, data: status });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// SNAPSHOT MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════
+const TimetableSnapshot = require('../models/TimetableSnapshot');
+
+exports.createSnapshot = async (req, res, next) => {
+  try {
+    const timetable = await GeneratedTimetable.findById(req.params.timetableId);
+    if (!timetable) return res.status(404).json({ success: false, error: 'Timetable not found' });
+
+    const blocks = await LessonBlock.find({ timetable: timetable._id }).lean();
+    const lastSnapshot = await TimetableSnapshot.findOne({ timetable: timetable._id })
+      .sort({ version: -1 }).select('version');
+
+    const version = (lastSnapshot?.version || 0) + 1;
+    const snapshot = await TimetableSnapshot.create({
+      timetable: timetable._id,
+      school: timetable.school,
+      session: timetable.session,
+      version,
+      label: req.body.label || `v${version}`,
+      description: req.body.description || '',
+      snapshotData: blocks.map(b => ({
+        type: b.type, subject: b.subject, teacher: b.teacher, room: b.room,
+        classes: b.classes, day: b.day, periods: b.periods, studentGroup: b.studentGroup,
+        isLocked: b.isLocked, combinationRule: b.combinationRule,
+        consecutiveGroupId: b.consecutiveGroupId, consecutivePosition: b.consecutivePosition,
+        priorityWeight: b.priorityWeight
+      })),
+      stats: {
+        totalBlocks: blocks.length,
+        placedBlocks: blocks.filter(b => b.type !== 'reserved').length,
+        qualityScore: timetable.stats?.softRuleScore || 0,
+        generationTimeMs: timetable.stats?.generationTimeMs || 0
+      },
+      isPublished: timetable.status === 'published',
+      createdBy: req.user?._id
+    });
+
+    res.status(201).json({ success: true, data: { id: snapshot._id, version, label: snapshot.label } });
+  } catch (err) { next(err); }
+};
+
+exports.listSnapshots = async (req, res, next) => {
+  try {
+    const snapshots = await TimetableSnapshot.find({ timetable: req.params.timetableId })
+      .sort({ version: -1 })
+      .select('version label description stats isPublished createdBy createdAt')
+      .populate('createdBy', 'name email');
+
+    res.json({ success: true, data: snapshots });
+  } catch (err) { next(err); }
+};
+
+exports.rollbackToSnapshot = async (req, res, next) => {
+  try {
+    const snapshot = await TimetableSnapshot.findById(req.params.snapshotId);
+    if (!snapshot) return res.status(404).json({ success: false, error: 'Snapshot not found' });
+
+    // Create a backup snapshot of current state before rollback
+    const currentBlocks = await LessonBlock.find({ timetable: snapshot.timetable }).lean();
+    const lastSnap = await TimetableSnapshot.findOne({ timetable: snapshot.timetable })
+      .sort({ version: -1 }).select('version');
+    const backupVersion = (lastSnap?.version || 0) + 1;
+    await TimetableSnapshot.create({
+      timetable: snapshot.timetable, school: snapshot.school, session: snapshot.session,
+      version: backupVersion, label: `Pre-rollback backup (v${backupVersion})`,
+      snapshotData: currentBlocks.map(b => ({
+        type: b.type, subject: b.subject, teacher: b.teacher, room: b.room,
+        classes: b.classes, day: b.day, periods: b.periods, studentGroup: b.studentGroup,
+        isLocked: b.isLocked
+      })),
+      stats: { totalBlocks: currentBlocks.length },
+      createdBy: req.user?._id
+    });
+
+    // Delete current blocks and restore from snapshot
+    await LessonBlock.deleteMany({ timetable: snapshot.timetable });
+    const restoredBlocks = snapshot.snapshotData.map(b => ({
+      ...b, timetable: snapshot.timetable
+    }));
+    if (restoredBlocks.length > 0) {
+      await LessonBlock.insertMany(restoredBlocks, { ordered: false });
+    }
+
+    // Update timetable stats
+    await GeneratedTimetable.findByIdAndUpdate(snapshot.timetable, {
+      'stats.totalBlocks': restoredBlocks.length,
+      status: 'draft'
+    });
+
+    res.json({ success: true, message: `Rolled back to v${snapshot.version}`, data: { blocksRestored: restoredBlocks.length } });
+  } catch (err) { next(err); }
+};
+
+exports.compareSnapshot = async (req, res, next) => {
+  try {
+    const snapshot = await TimetableSnapshot.findById(req.params.snapshotId);
+    if (!snapshot) return res.status(404).json({ success: false, error: 'Snapshot not found' });
+
+    const currentBlocks = await LessonBlock.find({ timetable: snapshot.timetable }).lean();
+    const snapshotBlocks = snapshot.snapshotData;
+
+    // Build key maps for comparison
+    const makeKey = (b) => `${b.day}_${(b.periods||[]).join(',')}_${(b.classes||[]).map(c=>c.toString()).join(',')}`;
+    const currentMap = new Map();
+    for (const b of currentBlocks) currentMap.set(makeKey(b), b);
+    const snapMap = new Map();
+    for (const b of snapshotBlocks) snapMap.set(makeKey(b), b);
+
+    const added = [], removed = [], changed = [];
+    for (const [key, b] of currentMap) {
+      if (!snapMap.has(key)) added.push({ day: b.day, periods: b.periods, type: 'added' });
+      else {
+        const sb = snapMap.get(key);
+        if (b.teacher?.toString() !== sb.teacher?.toString() || b.subject?.toString() !== sb.subject?.toString()) {
+          changed.push({ day: b.day, periods: b.periods, type: 'changed' });
+        }
+      }
+    }
+    for (const [key] of snapMap) {
+      if (!currentMap.has(key)) removed.push({ day: snapMap.get(key).day, periods: snapMap.get(key).periods, type: 'removed' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        snapshotVersion: snapshot.version,
+        currentBlocks: currentBlocks.length,
+        snapshotBlocks: snapshotBlocks.length,
+        added: added.length, removed: removed.length, changed: changed.length,
+        details: { added: added.slice(0, 20), removed: removed.slice(0, 20), changed: changed.slice(0, 20) }
+      }
+    });
   } catch (err) { next(err); }
 };

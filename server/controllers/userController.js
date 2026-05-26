@@ -2,16 +2,40 @@ const User = require('../models/User');
 const School = require('../models/School');
 const AuditLog = require('../models/AuditLog');
 const crypto = require('crypto'); // Built-in node module
+const { isPlatformRole } = require('../middleware/auth');
 
 exports.getUsers = async (req, res, next) => {
   try {
-    const schoolId = req.query.school || req.user?.activeSchool;
+    const isPlatform = isPlatformRole(req.user?.role);
     let filter = {};
-    if (schoolId) {
+
+    if (isPlatform) {
+      // Platform users can see ALL users, optionally filtered by school
+      if (req.query.school) {
+        filter = { 'schools.school': req.query.school };
+      }
+    } else {
+      // School users MUST be scoped to their school only
+      const schoolId = req.schoolId || req.user?.activeSchool;
+      if (!schoolId) {
+        return res.status(400).json({ success: false, error: 'School context required' });
+      }
       filter = { 'schools.school': schoolId };
+
+      // Non-admin school users see only themselves
+      const membership = req.user?.schools?.find(s =>
+        s.school?.toString() === schoolId.toString() && s.isActive
+      );
+      const isSchoolAdmin = membership?.role === 'school_owner' || membership?.role === 'school_admin' ||
+                            req.user?.role === 'school_admin';
+      if (!isSchoolAdmin) {
+        filter._id = req.user._id;
+      }
     }
-    
-    const users = await User.find(filter).populate('schools.school', 'name');
+
+    const users = await User.find(filter)
+      .select('-password')
+      .populate('schools.school', 'name');
     res.json({ success: true, count: users.length, data: users });
   } catch (err) { next(err); }
 };

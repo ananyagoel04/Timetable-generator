@@ -4,7 +4,8 @@ import {
   LayoutDashboard, Users, BookOpen, School, DoorOpen, Calendar, Clock,
   Zap, AlertTriangle, UserMinus, RefreshCw, ChevronLeft, ChevronRight,
   GraduationCap, Settings, FileText, Layers, Shield, Wrench,
-  Menu, X, LogOut, ClipboardList, BarChart3, Moon, Sun, Monitor, CheckSquare
+  Menu, X, LogOut, ClipboardList, BarChart3, Moon, Sun, Monitor, CheckSquare,
+  Brain
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSidebar } from '../../context/SidebarContext';
@@ -42,6 +43,8 @@ const navItems = [
   { path: '/users', icon: Users, label: 'User Management', roles: ADMIN_ROLES },
   { path: '/audit-logs', icon: ClipboardList, label: 'Audit Logs', roles: ADMIN_ROLES },
   { path: '/reports', icon: BarChart3, label: 'Reports', roles: STAFF_ROLES },
+  { path: '/analytics', icon: Brain, label: 'Analytics', roles: MANAGER_ROLES },
+  { path: '/roles', icon: Shield, label: 'Roles & Permissions', roles: ADMIN_ROLES },
   { path: '/settings', icon: Settings, label: 'Settings', roles: ADMIN_ROLES },
   { divider: true, label: 'Platform', roles: PLATFORM_ROLES },
   { path: '/platform', icon: GraduationCap, label: 'Platform Admin', roles: PLATFORM_ROLES },

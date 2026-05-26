@@ -235,4 +235,145 @@ function _buildTimetableSheet(sheet, blocks, days, totalPeriods, filterType, fil
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// PDF EXPORTS
+// ═══════════════════════════════════════════════════════════════════
+const PDFExporter = require('../services/pdfExporter');
+const AcademicSession = require('../models/AcademicSession');
+const PeriodStructure = require('../models/PeriodStructure');
+
+async function _getPdfScope(req) {
+  const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+  const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
+  const ps = await PeriodStructure.findOne({ school: school?._id, status: 'active' });
+  const workingDays = school?.settings?.workingDays || ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const totalPeriods = ps ? ps.timeslots.filter(t => t.isSchedulable).length : (school?.settings?.defaultPeriodsPerDay || 8);
+  return { school, session, workingDays, totalPeriods };
+}
+
+// GET /api/export/timetable/pdf?timetableId=...&classId=...
+router.get('/timetable/pdf', authorize('export_reports'), async (req, res, next) => {
+  try {
+    const { timetableId, classId } = req.query;
+    const { school, session, workingDays, totalPeriods } = await _getPdfScope(req);
+
+    const tt = timetableId
+      ? await GeneratedTimetable.findById(timetableId)
+      : await GeneratedTimetable.findOne({ school: school._id }).sort({ createdAt: -1 });
+    if (!tt) return res.status(404).json({ success: false, error: 'No timetable found' });
+
+    const pdf = new PDFExporter(school, session);
+
+    if (classId) {
+      const cls = await Class.findById(classId);
+      if (!cls) return res.status(404).json({ success: false, error: 'Class not found' });
+      const blocks = await LessonBlock.find({ timetable: tt._id, classes: classId })
+        .populate('subject teacher room');
+      const buf = pdf.generateClassTimetable(cls, blocks, workingDays, totalPeriods);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=timetable_${cls.name}_${Date.now()}.pdf`);
+      return res.send(Buffer.from(buf));
+    }
+
+    // Full school PDF
+    const classes = await Class.find({ school: school._id, isActive: true }).sort({ grade: 1, section: 1 });
+    const blocks = await LessonBlock.find({ timetable: tt._id }).populate('subject teacher room classes');
+    const classReports = classes.map(cls => {
+      const classBlocks = blocks.filter(b => b.classes.some(c => (c._id || c).toString() === cls._id.toString()));
+      const schedule = {};
+      classBlocks.forEach(b => {
+        if (!schedule[b.day]) schedule[b.day] = [];
+        schedule[b.day].push({ period: b.periods[0], subject: b.subject?.name, teacher: b.teacher?.shortName || b.teacher?.name, room: b.room?.name });
+      });
+      return { class: { name: cls.name }, schedule };
+    });
+    const buf = pdf.generateFullSchoolPDF(classReports, workingDays, totalPeriods);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=full_school_timetable_${Date.now()}.pdf`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
+// GET /api/export/timetable/teacher-pdf?timetableId=...&teacherId=...
+router.get('/timetable/teacher-pdf', authorize('export_reports'), async (req, res, next) => {
+  try {
+    const { timetableId, teacherId } = req.query;
+    if (!teacherId) return res.status(400).json({ success: false, error: 'teacherId required' });
+    const { school, session, workingDays, totalPeriods } = await _getPdfScope(req);
+    const tt = timetableId
+      ? await GeneratedTimetable.findById(timetableId)
+      : await GeneratedTimetable.findOne({ school: school._id }).sort({ createdAt: -1 });
+    if (!tt) return res.status(404).json({ success: false, error: 'No timetable found' });
+
+    const teacher = await Teacher.findById(teacherId);
+    if (!teacher) return res.status(404).json({ success: false, error: 'Teacher not found' });
+    const blocks = await LessonBlock.find({ timetable: tt._id, teacher: teacherId }).populate('subject room classes');
+
+    const pdf = new PDFExporter(school, session);
+    const buf = pdf.generateTeacherTimetable(teacher, blocks, workingDays, totalPeriods);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=timetable_${teacher.shortName || teacher.name}_${Date.now()}.pdf`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
+// GET /api/export/daily-sheet/pdf?date=...
+router.get('/daily-sheet/pdf', authorize('export_reports'), async (req, res, next) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ success: false, error: 'date required' });
+    const { school, session } = await _getPdfScope(req);
+
+    const Absence = require('../models/Absence');
+    const startDate = new Date(date); startDate.setHours(0,0,0,0);
+    const endDate = new Date(date); endDate.setHours(23,59,59,999);
+
+    const [subs, absences] = await Promise.all([
+      Substitution.find({ school: school._id, date: { $gte: startDate, $lte: endDate } })
+        .populate('originalTeacher substituteTeacher class subject').sort({ period: 1 }),
+      Absence.find({ school: school._id, date: { $gte: startDate, $lte: endDate } })
+        .populate('teacher')
+    ]);
+
+    const pdf = new PDFExporter(school, session);
+    const buf = pdf.generateDailySheet(date, subs, absences);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=daily_sheet_${date}_${Date.now()}.pdf`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
+// GET /api/export/workload/pdf
+router.get('/workload/pdf', authorize('export_reports'), async (req, res, next) => {
+  try {
+    const { school, session } = await _getPdfScope(req);
+    const tt = await GeneratedTimetable.findOne({ school: school._id }).sort({ createdAt: -1 });
+    if (!tt) return res.status(404).json({ success: false, error: 'No timetable found' });
+
+    const teachers = await Teacher.find({ school: school._id, status: 'active' }).sort({ name: 1 });
+    const blocks = await LessonBlock.find({ timetable: tt._id, teacher: { $ne: null }, type: { $nin: ['reserved'] } })
+      .populate('subject classes');
+
+    const workloadData = teachers.map(t => {
+      const tBlocks = blocks.filter(b => b.teacher.toString() === t._id.toString());
+      const dayLoads = {};
+      for (const b of tBlocks) { dayLoads[b.day] = (dayLoads[b.day] || 0) + b.periods.length; }
+      const totalPeriods = Object.values(dayLoads).reduce((s, v) => s + v, 0);
+      const utilization = t.maxPeriodsPerWeek > 0 ? Math.round((totalPeriods / t.maxPeriodsPerWeek) * 100) : 0;
+      return {
+        teacher: { name: t.name, department: t.department },
+        maxPerDay: t.maxPeriodsPerDay, maxPerWeek: t.maxPeriodsPerWeek,
+        totalPeriods, utilization, dayLoads,
+        status: utilization > 100 ? 'OVER' : utilization > 80 ? 'optimal' : utilization > 50 ? 'moderate' : 'under'
+      };
+    });
+
+    const pdf = new PDFExporter(school, session);
+    const buf = pdf.generateWorkloadReport(workloadData);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=workload_${Date.now()}.pdf`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

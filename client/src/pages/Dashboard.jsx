@@ -3,20 +3,46 @@ import { Link } from 'react-router-dom';
 import {
   Users, School, BookOpen, DoorOpen, Calendar, AlertTriangle, UserMinus,
   Zap, Settings, Layers, FileText, RefreshCw, Clock, TrendingUp,
-  CheckCircle2, XCircle, Activity, ChevronRight
+  CheckCircle2, XCircle, Activity, ChevronRight, ClipboardList, Gauge
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import PermissionGate from '../components/ui/PermissionGate';
+import toast from 'react-hot-toast';
 
 export default function Dashboard() {
   const { user, hasPermission } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [todaySubs, setTodaySubs] = useState(null);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [setupStatus, setSetupStatus] = useState(null);
 
   useEffect(() => {
     api.get('/timetable/stats').then(r => { setStats(r.data); setLoading(false); }).catch(() => setLoading(false));
+
+    // Today's substitutions
+    const today = new Date().toISOString().split('T')[0];
+    api.get(`/substitutions/daily/${today}`).then(r => setTodaySubs(r.data)).catch(() => {});
+
+    // Recent audit logs
+    api.get('/audit-logs?limit=5').then(r => {
+      const data = r.data?.data || r.data || [];
+      setAuditLogs(Array.isArray(data) ? data.slice(0, 5) : []);
+    }).catch(() => {});
+
+    // Setup readiness
+    api.get('/setup/status').then(r => setSetupStatus(r.data)).catch(() => {});
   }, []);
+
+  const approveSub = async (id) => {
+    try {
+      await api.post(`/substitutions/${id}/approve`);
+      toast.success('Approved');
+      const today = new Date().toISOString().split('T')[0];
+      api.get(`/substitutions/daily/${today}`).then(r => setTodaySubs(r.data));
+    } catch (err) { toast.error('Failed'); }
+  };
 
   const s = stats || {};
   const now = new Date();
@@ -50,6 +76,12 @@ export default function Dashboard() {
     : s.latestTimetable === 'draft'
     ? { text: 'Draft Ready', icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/15' }
     : { text: 'Ready to Generate', icon: Zap, color: 'text-primary-400', bg: 'bg-primary-500/15' };
+
+  const auditIcons = {
+    login: '🔑', create: '➕', update: '✏️', delete: '🗑️', generate: '⚡', publish: '📤',
+    manual_edit: '🔧', teacher_replacement: '🔄', absence_create: '📋', substitution_approve: '✅',
+    conflict_resolve: '🛠️', lock: '🔒', unlock: '🔓'
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -137,32 +169,141 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Status Summary */}
-      {stats && (
-        <div className="glass-card p-5">
-          <h3 className="text-sm font-semibold text-slate-600 dark:text-dark-300 mb-3 uppercase tracking-wider flex items-center gap-2">
-            <Activity size={14} />System Status
-          </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-center">
-            <div className="bg-slate-50 dark:bg-dark-800/60 rounded-xl p-3">
-              <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{s.requirements || 0}</p>
-              <p className="text-[10px] text-slate-500 dark:text-dark-400">Subject-Class Loads</p>
+      {/* Operational Widgets Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Today's Substitutions */}
+        <PermissionGate permissions={['approve_substitutions']}>
+          <div className="glass-card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-600 dark:text-dark-300 uppercase tracking-wider flex items-center gap-2">
+                <RefreshCw size={14} />Today's Substitutions
+              </h3>
+              <Link to="/substitutions" className="text-[10px] text-primary-400 hover:text-primary-300 transition-colors">View All →</Link>
             </div>
-            <div className="bg-slate-50 dark:bg-dark-800/60 rounded-xl p-3">
-              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{s.combinationRules || 0}</p>
-              <p className="text-[10px] text-slate-500 dark:text-dark-400">Combination Rules</p>
+            {!todaySubs || todaySubs.count === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-dark-500 py-4 text-center">No substitutions today</p>
+            ) : (
+              <div className="space-y-2">
+                {todaySubs.data?.slice(0, 5).map(sub => (
+                  <div key={sub._id} className="flex items-center gap-3 p-2 rounded-lg bg-white/50 dark:bg-dark-800/50 border border-slate-200/30 dark:border-dark-700/30">
+                    <span className="text-xs font-mono text-slate-500 dark:text-dark-400 w-7 shrink-0">P{sub.period}</span>
+                    <span className="text-xs text-red-400 truncate">{sub.originalTeacher?.name}</span>
+                    <ChevronRight size={10} className="text-slate-300 dark:text-dark-600 shrink-0" />
+                    <span className="text-xs text-emerald-400 truncate">{sub.substituteTeacher?.name}</span>
+                    <span className="text-[10px] text-slate-400 dark:text-dark-500 ml-auto shrink-0">{sub.class?.name}</span>
+                    {sub.status === 'pending' && (
+                      <button onClick={() => approveSub(sub._id)} className="text-[9px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors shrink-0">Approve</button>
+                    )}
+                    {sub.status === 'confirmed' && <CheckCircle2 size={12} className="text-emerald-400 shrink-0" />}
+                  </div>
+                ))}
+                {todaySubs.count > 5 && <p className="text-[10px] text-slate-400 dark:text-dark-500 text-center">+{todaySubs.count - 5} more</p>}
+              </div>
+            )}
+          </div>
+        </PermissionGate>
+
+        {/* Recent Audit Activity */}
+        <PermissionGate permissions={['view_audit']}>
+          <div className="glass-card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-600 dark:text-dark-300 uppercase tracking-wider flex items-center gap-2">
+                <ClipboardList size={14} />Recent Activity
+              </h3>
+              <Link to="/audit-logs" className="text-[10px] text-primary-400 hover:text-primary-300 transition-colors">View All →</Link>
             </div>
-            <div className="bg-slate-50 dark:bg-dark-800/60 rounded-xl p-3">
-              <p className="text-lg font-bold text-purple-600 dark:text-purple-400">{s.scheduledBlocks || 0}</p>
-              <p className="text-[10px] text-slate-500 dark:text-dark-400">Lesson Blocks</p>
+            {auditLogs.length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-dark-500 py-4 text-center">No recent activity</p>
+            ) : (
+              <div className="space-y-2">
+                {auditLogs.map((log, i) => (
+                  <div key={log._id || i} className="flex items-start gap-2.5 p-2 rounded-lg bg-white/50 dark:bg-dark-800/50 border border-slate-200/30 dark:border-dark-700/30">
+                    <span className="text-sm mt-0.5 shrink-0">{auditIcons[log.action] || '📝'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-700 dark:text-dark-200 truncate">
+                        <span className="font-medium">{log.action?.replace(/_/g, ' ')}</span>
+                        {log.entityName && <span className="text-slate-400 dark:text-dark-500"> · {log.entityName}</span>}
+                      </p>
+                      <p className="text-[10px] text-slate-400 dark:text-dark-500">{log.userName || 'System'} · {new Date(log.createdAt).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </PermissionGate>
+      </div>
+
+      {/* Setup Readiness + System Status Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Setup Readiness */}
+        {setupStatus && (
+          <PermissionGate permissions={['edit_setup']}>
+            <div className="glass-card p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-slate-600 dark:text-dark-300 uppercase tracking-wider flex items-center gap-2">
+                  <Settings size={14} />Setup Readiness
+                </h3>
+                <Link to="/setup" className="text-[10px] text-primary-400 hover:text-primary-300 transition-colors">Open Wizard →</Link>
+              </div>
+              {/* Progress bar */}
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-slate-500 dark:text-dark-400">{setupStatus.completedSteps}/{setupStatus.totalSteps} steps</span>
+                  <span className={`text-xs font-bold ${setupStatus.readinessScore >= 100 ? 'text-emerald-400' : setupStatus.readinessScore >= 70 ? 'text-amber-400' : 'text-red-400'}`}>{setupStatus.readinessScore}%</span>
+                </div>
+                <div className="h-2 bg-slate-200 dark:bg-dark-700 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all duration-500 ${setupStatus.readinessScore >= 100 ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : setupStatus.readinessScore >= 70 ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-red-500 to-pink-500'}`}
+                    style={{ width: `${setupStatus.readinessScore}%` }} />
+                </div>
+              </div>
+              {/* Step indicators */}
+              <div className="grid grid-cols-2 gap-1.5">
+                {setupStatus.steps?.map(step => (
+                  <div key={step.key} className="flex items-center gap-1.5 text-[10px]">
+                    {step.complete ? <CheckCircle2 size={10} className="text-emerald-400 shrink-0" /> : <XCircle size={10} className="text-slate-300 dark:text-dark-600 shrink-0" />}
+                    <span className={step.complete ? 'text-slate-600 dark:text-dark-300' : 'text-slate-400 dark:text-dark-500'}>{step.label}</span>
+                    {step.count !== undefined && <span className="text-slate-400 dark:text-dark-500">({step.count})</span>}
+                  </div>
+                ))}
+              </div>
+              {setupStatus.canGenerate && (
+                <div className="mt-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2 text-center">
+                  <p className="text-xs text-emerald-400 font-medium">✓ Ready to generate timetable</p>
+                </div>
+              )}
             </div>
-            <div className="bg-slate-50 dark:bg-dark-800/60 rounded-xl p-3">
-              <p className={`text-lg font-bold ${s.conflicts > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{s.conflicts || 0}</p>
-              <p className="text-[10px] text-slate-500 dark:text-dark-400">Active Conflicts</p>
+          </PermissionGate>
+        )}
+
+        {/* System Status */}
+        {stats && (
+          <div className="glass-card p-5">
+            <h3 className="text-sm font-semibold text-slate-600 dark:text-dark-300 mb-3 uppercase tracking-wider flex items-center gap-2">
+              <Activity size={14} />System Status
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-center">
+              <div className="bg-slate-50 dark:bg-dark-800/60 rounded-xl p-3">
+                <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{s.requirements || 0}</p>
+                <p className="text-[10px] text-slate-500 dark:text-dark-400">Subject-Class Loads</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-dark-800/60 rounded-xl p-3">
+                <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{s.combinationRules || 0}</p>
+                <p className="text-[10px] text-slate-500 dark:text-dark-400">Combination Rules</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-dark-800/60 rounded-xl p-3">
+                <p className="text-lg font-bold text-purple-600 dark:text-purple-400">{s.scheduledBlocks || 0}</p>
+                <p className="text-[10px] text-slate-500 dark:text-dark-400">Lesson Blocks</p>
+              </div>
+              <div className="bg-slate-50 dark:bg-dark-800/60 rounded-xl p-3">
+                <p className={`text-lg font-bold ${s.conflicts > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{s.conflicts || 0}</p>
+                <p className="text-[10px] text-slate-500 dark:text-dark-400">Active Conflicts</p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
+

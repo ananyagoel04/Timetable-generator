@@ -368,12 +368,15 @@ Required by §21, §31. No chart/graph showing teacher workload distribution.
 ### 6.3 — Responsive Breakpoint Status
 | Breakpoint | Status |
 |:---:|--------|
-| 1440px | ✅ Works |
+| 1440px | ✅ Works properly, grid renders fully |
 | 1280px | ✅ Works |
 | 1024px | ⚠️ Some overflow on timetable grid |
-| 768px | ⚠️ Sidebar collapse works, tables overflow |
-| 430px | ⚠️ Cards stack but timetable needs scroll |
-| 390px | ❌ Not properly tested |
+| 768px | ❌ Sidebar does not collapse to icons-only, takes up too much screen space cutting off dashboard stats |
+| 430px | ⚠️ Cards stack but timetable requires horizontal scrolling (not touch-optimized) |
+| 390px | ✅ Dashboard layout adjusts well (sidebar hidden into hamburger menu drawer) |
+
+### 6.4 — Security & Auth Findings
+- **Overly Aggressive Rate Limiting:** The `authLimiter` blocks users after 30 requests per 15 minutes. Simple frontend navigation triggers rapid repeated `/api/auth/me` and `/api/notifications` polling, causing instant 429 Too Many Requests errors which block testing.
 
 ---
 

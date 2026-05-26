@@ -30,4 +30,8 @@ router.delete('/reserved/:id', authorize('manage_rules'), rc.deleteReservedRule)
 router.get('/custom', authorize('view_timetable', 'manage_rules'), rc.getCustomRules);
 router.post('/custom', authorize('manage_rules'), rc.createCustomRule);
 
+// Soft Preferences (alias for custom rules — fixes 404 on frontend)
+router.get('/soft-preferences', authorize('view_timetable', 'manage_rules'), rc.getCustomRules);
+
 module.exports = router;
+

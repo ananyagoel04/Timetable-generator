@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, RefreshCw, CheckCircle, Clock, Search } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, RefreshCw, CheckCircle, Clock, Search, Calendar, Printer, FileText, ChevronDown, ChevronUp, Link, XCircle } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
 import toast from 'react-hot-toast';
@@ -14,6 +14,15 @@ export default function Substitutions() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({ originalTeacher: '', substituteTeacher: '', class: '', subject: '', date: '', period: 1, notes: '' });
 
+  // Daily sheet state
+  const [view, setView] = useState('list'); // 'list' | 'daily'
+  const [dailyDate, setDailyDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dailyData, setDailyData] = useState(null);
+  const [dailyLoading, setDailyLoading] = useState(false);
+
+  // Filters
+  const [statusFilter, setStatusFilter] = useState('');
+
   useEffect(() => {
     fetchSubs();
     api.get('/teachers').then(r => setTeachers(r.data));
@@ -21,7 +30,18 @@ export default function Substitutions() {
     api.get('/subjects').then(r => setSubjects(r.data));
   }, []);
 
+  useEffect(() => { if (view === 'daily') fetchDaily(); }, [dailyDate, view]);
+
   const fetchSubs = () => api.get('/substitutions').then(r => { setSubs(r.data); setLoading(false); });
+
+  const fetchDaily = async () => {
+    setDailyLoading(true);
+    try {
+      const r = await api.get(`/substitutions/daily/${dailyDate}`);
+      setDailyData(r.data);
+    } catch { setDailyData(null); }
+    setDailyLoading(false);
+  };
 
   const checkAvailable = async (day, period) => {
     if (!day || !period) return;
@@ -37,66 +57,215 @@ export default function Substitutions() {
       await api.post('/substitutions', form);
       toast.success('Substitution created');
       setModalOpen(false); fetchSubs();
-    } catch (err) { toast.error(err.message); }
+      if (view === 'daily') fetchDaily();
+    } catch (err) { toast.error(err.response?.data?.error || err.message); }
   };
 
   const updateStatus = async (id, status) => {
     try {
-      await api.put(`/substitutions/${id}`, { status });
+      if (status === 'confirmed') {
+        await api.post(`/substitutions/${id}/approve`);
+      } else {
+        await api.put(`/substitutions/${id}`, { status });
+      }
       toast.success(`Marked as ${status}`);
       fetchSubs();
-    } catch (err) { toast.error(err.message); }
+      if (view === 'daily') fetchDaily();
+    } catch (err) { toast.error(err.response?.data?.error || err.message); }
   };
 
-  const statusColors = { pending: 'badge-warning', confirmed: 'badge-info', completed: 'badge-success' };
+  const filteredSubs = useMemo(() => {
+    let list = [...subs];
+    if (statusFilter) list = list.filter(s => s.status === statusFilter);
+    return list;
+  }, [subs, statusFilter]);
+
+  const statusColors = {
+    pending: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+    confirmed: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
+    completed: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
+    cancelled: 'bg-red-500/20 text-red-400 border border-red-500/30'
+  };
+
+  const printDaily = () => {
+    const w = window.open('', '_blank');
+    const rows = (dailyData?.data || []).map(s => `
+      <tr>
+        <td style="padding:6px;border:1px solid #ccc">P${s.period}</td>
+        <td style="padding:6px;border:1px solid #ccc">${s.originalTeacher?.name || '—'}</td>
+        <td style="padding:6px;border:1px solid #ccc">${s.substituteTeacher?.name || '—'}</td>
+        <td style="padding:6px;border:1px solid #ccc">${s.class?.name || '—'}</td>
+        <td style="padding:6px;border:1px solid #ccc">${s.subject?.name || '—'}</td>
+        <td style="padding:6px;border:1px solid #ccc">${s.status}</td>
+      </tr>`).join('');
+    w.document.write(`<html><head><title>Daily Substitution Sheet — ${dailyDate}</title><style>body{font-family:Arial;margin:20px}table{border-collapse:collapse;width:100%}th{background:#f0f0f0;padding:8px;border:1px solid #ccc;text-align:left}</style></head><body>
+      <h2>Daily Substitution Sheet</h2><p>Date: ${new Date(dailyDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+      <table><thead><tr><th>Period</th><th>Original Teacher</th><th>Substitute</th><th>Class</th><th>Subject</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+      <p style="margin-top:20px;font-size:12px;color:#999">Generated ${new Date().toLocaleString()}</p></body></html>`);
+    w.document.close();
+    w.print();
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div><h1 className="page-title">Substitutions</h1><p className="page-subtitle">{subs.length} substitutions</p></div>
-        <button onClick={() => { setForm({ originalTeacher: '', substituteTeacher: '', class: '', subject: '', date: '', period: 1, notes: '' }); setAvailable([]); setModalOpen(true); }} className="btn-primary flex items-center gap-2"><Plus size={18} /> New Substitution</button>
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="page-title">Substitutions</h1>
+          <p className="page-subtitle">{subs.length} total · {subs.filter(s => s.status === 'pending').length} pending approval</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* View toggle */}
+          <div className="flex bg-white/50 dark:bg-dark-800/50 rounded-lg border border-slate-300/50 dark:border-dark-700/50 p-0.5">
+            <button onClick={() => setView('list')} className={`text-xs px-3 py-1.5 rounded-md transition-colors ${view === 'list' ? 'bg-primary-500 text-white' : 'text-slate-500 dark:text-dark-400'}`}>List View</button>
+            <button onClick={() => setView('daily')} className={`text-xs px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${view === 'daily' ? 'bg-primary-500 text-white' : 'text-slate-500 dark:text-dark-400'}`}>
+              <Calendar size={12} />Daily Sheet
+            </button>
+          </div>
+          <button onClick={() => { setForm({ originalTeacher: '', substituteTeacher: '', class: '', subject: '', date: '', period: 1, notes: '' }); setAvailable([]); setModalOpen(true); }} className="btn-primary flex items-center gap-2 text-sm">
+            <Plus size={16} />New Substitution
+          </button>
+        </div>
       </div>
 
-      <div className="table-container">
-        <table className="w-full">
-          <thead className="table-header">
-            <tr>
-              <th className="text-left px-5 py-3">Date</th>
-              <th className="text-left px-5 py-3">Period</th>
-              <th className="text-left px-5 py-3">Original</th>
-              <th className="text-left px-5 py-3">Substitute</th>
-              <th className="text-left px-5 py-3">Class</th>
-              <th className="text-left px-5 py-3">Status</th>
-              <th className="text-right px-5 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={7} className="text-center py-12 text-slate-500 dark:text-dark-400">Loading...</td></tr>
-            ) : subs.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-12 text-slate-500 dark:text-dark-400">No substitutions</td></tr>
-            ) : subs.map(s => (
-              <tr key={s._id} className="table-row">
-                <td className="px-5 py-4 text-slate-600 dark:text-dark-300 text-sm">{new Date(s.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
-                <td className="px-5 py-4 text-slate-600 dark:text-dark-300">P{s.period}</td>
-                <td className="px-5 py-4 text-slate-900 dark:text-dark-50 font-medium">{s.originalTeacher?.name || '—'}</td>
-                <td className="px-5 py-4 text-emerald-400 font-medium">{s.substituteTeacher?.name || '—'}</td>
-                <td className="px-5 py-4 text-slate-600 dark:text-dark-300">{s.class?.name || '—'}</td>
-                <td className="px-5 py-4"><span className={statusColors[s.status]}>{s.status}</span></td>
-                <td className="px-5 py-4 text-right">
-                  {s.status === 'pending' && (
-                    <button onClick={() => updateStatus(s._id, 'confirmed')} className="text-xs px-3 py-1 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">Confirm</button>
-                  )}
-                  {s.status === 'confirmed' && (
-                    <button onClick={() => updateStatus(s._id, 'completed')} className="text-xs px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30">Complete</button>
-                  )}
-                </td>
-              </tr>
+      {/* Daily Sheet View */}
+      {view === 'daily' && (
+        <div className="space-y-4">
+          {/* Date picker + stats */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <input type="date" value={dailyDate} onChange={e => setDailyDate(e.target.value)} className="input-field w-44 text-sm" />
+            <button onClick={() => setDailyDate(new Date().toISOString().split('T')[0])} className="btn-secondary text-xs">Today</button>
+            <button onClick={() => { const d = new Date(dailyDate); d.setDate(d.getDate() - 1); setDailyDate(d.toISOString().split('T')[0]); }} className="btn-secondary text-xs px-2">←</button>
+            <button onClick={() => { const d = new Date(dailyDate); d.setDate(d.getDate() + 1); setDailyDate(d.toISOString().split('T')[0]); }} className="btn-secondary text-xs px-2">→</button>
+            <div className="h-5 w-px bg-slate-300 dark:bg-dark-700" />
+            <button onClick={printDaily} className="btn-secondary text-xs flex items-center gap-1"><Printer size={12} />Print</button>
+
+            {dailyData && (
+              <div className="flex items-center gap-2 ml-auto text-[10px]">
+                <span className="px-2 py-1 rounded bg-amber-500/20 text-amber-400">{dailyData.summary?.pending || 0} pending</span>
+                <span className="px-2 py-1 rounded bg-blue-500/20 text-blue-400">{dailyData.summary?.confirmed || 0} confirmed</span>
+                <span className="px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">{dailyData.summary?.completed || 0} completed</span>
+                <span className="px-2 py-1 rounded bg-slate-500/20 text-slate-400 dark:text-dark-300">{dailyData.absencesCount || 0} absences</span>
+              </div>
+            )}
+          </div>
+
+          {/* Daily table */}
+          <div className="glass-card overflow-hidden">
+            {dailyLoading ? (
+              <div className="p-12 text-center text-slate-500 dark:text-dark-400">Loading...</div>
+            ) : !dailyData || dailyData.count === 0 ? (
+              <div className="p-12 text-center">
+                <Calendar size={40} className="mx-auto text-slate-300 dark:text-dark-600 mb-3" />
+                <p className="text-slate-500 dark:text-dark-400">No substitutions for {new Date(dailyDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead className="table-header">
+                  <tr>
+                    <th className="text-left px-5 py-3">Period</th>
+                    <th className="text-left px-5 py-3">Original Teacher</th>
+                    <th className="text-left px-5 py-3">Substitute</th>
+                    <th className="text-left px-5 py-3">Class</th>
+                    <th className="text-left px-5 py-3">Subject</th>
+                    <th className="text-left px-5 py-3">Status</th>
+                    <th className="text-left px-5 py-3">Source</th>
+                    <th className="text-right px-5 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyData.data.map(s => (
+                    <tr key={s._id} className="table-row">
+                      <td className="px-5 py-4 font-mono text-sm text-slate-900 dark:text-dark-50">P{s.period}</td>
+                      <td className="px-5 py-4 text-red-400 font-medium text-sm">{s.originalTeacher?.name || '—'}</td>
+                      <td className="px-5 py-4 text-emerald-400 font-medium text-sm">{s.substituteTeacher?.name || '—'}</td>
+                      <td className="px-5 py-4 text-slate-600 dark:text-dark-300 text-sm">{s.class?.name || '—'}</td>
+                      <td className="px-5 py-4 text-sm">
+                        {s.subject?.name && <span className="px-2 py-0.5 rounded-full text-[10px]" style={{ backgroundColor: s.subject.color ? s.subject.color + '20' : '#3b82f620', color: s.subject.color || '#3b82f6' }}>{s.subject.shortName || s.subject.name}</span>}
+                      </td>
+                      <td className="px-5 py-4"><span className={`text-[10px] px-2 py-1 rounded-full ${statusColors[s.status] || ''}`}>{s.status}</span></td>
+                      <td className="px-5 py-4">
+                        {s.linkedAbsence ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 flex items-center gap-1 w-fit">
+                            <Link size={8} />Absence
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 dark:text-dark-500">Manual</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        {s.status === 'pending' && (
+                          <button onClick={() => updateStatus(s._id, 'confirmed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors">Approve</button>
+                        )}
+                        {s.status === 'confirmed' && (
+                          <button onClick={() => updateStatus(s._id, 'completed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">Complete</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* List View */}
+      {view === 'list' && (
+        <>
+          {/* Status filter */}
+          <div className="flex items-center gap-2">
+            {['', 'pending', 'confirmed', 'completed', 'cancelled'].map(s => (
+              <button key={s} onClick={() => setStatusFilter(s)}
+                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${statusFilter === s ? 'bg-primary-500/20 border-primary-500/30 text-primary-400' : 'bg-white/50 dark:bg-dark-800/50 border-slate-300/50 dark:border-dark-700/50 text-slate-500 dark:text-dark-400'}`}>
+                {s || 'All'}
+              </button>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
 
+          <div className="table-container">
+            <table className="w-full">
+              <thead className="table-header">
+                <tr>
+                  <th className="text-left px-5 py-3">Date</th>
+                  <th className="text-left px-5 py-3">Period</th>
+                  <th className="text-left px-5 py-3">Original</th>
+                  <th className="text-left px-5 py-3">Substitute</th>
+                  <th className="text-left px-5 py-3">Class</th>
+                  <th className="text-left px-5 py-3">Status</th>
+                  <th className="text-right px-5 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={7} className="text-center py-12 text-slate-500 dark:text-dark-400">Loading...</td></tr>
+                ) : filteredSubs.length === 0 ? (
+                  <tr><td colSpan={7} className="text-center py-12 text-slate-500 dark:text-dark-400">No substitutions{statusFilter ? ` with status "${statusFilter}"` : ''}</td></tr>
+                ) : filteredSubs.map(s => (
+                  <tr key={s._id} className="table-row">
+                    <td className="px-5 py-4 text-slate-600 dark:text-dark-300 text-sm">{new Date(s.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-dark-300 font-mono">P{s.period}</td>
+                    <td className="px-5 py-4 text-slate-900 dark:text-dark-50 font-medium text-sm">{s.originalTeacher?.name || '—'}</td>
+                    <td className="px-5 py-4 text-emerald-400 font-medium text-sm">{s.substituteTeacher?.name || '—'}</td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-dark-300 text-sm">{s.class?.name || '—'}</td>
+                    <td className="px-5 py-4"><span className={`text-[10px] px-2 py-1 rounded-full ${statusColors[s.status] || ''}`}>{s.status}</span></td>
+                    <td className="px-5 py-4 text-right space-x-1">
+                      {s.status === 'pending' && (
+                        <button onClick={() => updateStatus(s._id, 'confirmed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors">Approve</button>
+                      )}
+                      {s.status === 'confirmed' && (
+                        <button onClick={() => updateStatus(s._id, 'completed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">Complete</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* New Substitution Modal */}
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="New Substitution" size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -105,7 +274,7 @@ export default function Substitutions() {
             </div>
             <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Period *</label>
               <select value={form.period} onChange={e => { const p = +e.target.value; setForm(f => ({...f, period: p})); if (form.date) { const d = new Date(form.date); const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']; checkAvailable(days[d.getDay()], p); }}} className="select-field">
-                {[1,2,3,5,6,7,8].map(p => <option key={p} value={p}>Period {p}</option>)}
+                {[1,2,3,4,5,6,7,8].map(p => <option key={p} value={p}>Period {p}</option>)}
               </select>
             </div>
           </div>
@@ -119,9 +288,9 @@ export default function Substitutions() {
             <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Substitute Teacher *</label>
               <select value={form.substituteTeacher} onChange={e => setForm(f => ({...f, substituteTeacher: e.target.value}))} required className="select-field">
                 <option value="">Select</option>
-                {available.length > 0 ? available.map(t => <option key={t._id} value={t._id}>✓ {t.name} (free)</option>) : teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                {available.length > 0 ? available.map(t => <option key={t._id} value={t._id}>✓ {t.name} ({t.suitabilityScore}%)</option>) : teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
               </select>
-              {available.length > 0 && <p className="text-[10px] text-emerald-400 mt-1">{available.length} teachers free at this slot</p>}
+              {available.length > 0 && <p className="text-[10px] text-emerald-400 mt-1">{available.length} teachers free at this slot (ranked by suitability)</p>}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">

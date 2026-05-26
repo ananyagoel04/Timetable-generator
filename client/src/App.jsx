@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { SidebarProvider } from './context/SidebarContext';
 import { ThemeProvider } from './context/ThemeContext';
 import Layout from './components/layout/Layout';
+import PermissionGate from './components/ui/PermissionGate';
+import AccessDenied from './components/ui/AccessDenied';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import SetupWizard from './pages/SetupWizard';
@@ -29,6 +31,8 @@ import UserManagement from './pages/UserManagement';
 import CanTeachManager from './pages/CanTeachManager';
 import ForgotPassword from './pages/ForgotPassword';
 import SchoolSessionSelector from './pages/SchoolSessionSelector';
+import AnalyticsDashboard from './pages/AnalyticsDashboard';
+import RoleManagement from './pages/RoleManagement';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
@@ -41,6 +45,15 @@ function ProtectedRoute({ children }) {
     </div>
   );
   return isAuthenticated ? children : <Navigate to="/login" replace />;
+}
+
+/** Wraps a page with a permission gate — shows AccessDenied if user lacks permission */
+function Gated({ permissions, platformOnly, children }) {
+  return (
+    <PermissionGate permissions={permissions || []} platformOnly={platformOnly} fallback={<AccessDenied permission={permissions?.join(', ') || 'platform access'} />}>
+      {children}
+    </PermissionGate>
+  );
 }
 
 function AppRoutes() {
@@ -58,42 +71,50 @@ function AppRoutes() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/select-school" element={isAuthenticated ? <SchoolSessionSelector /> : <Navigate to="/login" replace />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+        {/* Dashboard — accessible to all authenticated users */}
         <Route path="/" element={<Dashboard />} />
-        <Route path="/setup" element={<SetupWizard />} />
-        <Route path="/teachers" element={<Teachers />} />
-        <Route path="/classes" element={<Classes />} />
-        <Route path="/subjects" element={<Subjects />} />
-        <Route path="/rooms" element={<Rooms />} />
-        <Route path="/periods" element={<PeriodStructure />} />
-        <Route path="/requirements" element={<SubjectRequirements />} />
-        <Route path="/can-teach" element={<CanTeachManager />} />
-        <Route path="/combinations" element={<CombinationRules />} />
-        <Route path="/timetable" element={<TimetableView />} />
-        <Route path="/generator" element={<Generator />} />
-        <Route path="/conflicts" element={<ConflictCenter />} />
-        <Route path="/absences" element={<Absences />} />
-        <Route path="/substitutions" element={<Substitutions />} />
-        <Route path="/audit-logs" element={<AuditLogs />} />
-        <Route path="/rules" element={<CustomRules />} />
-        <Route path="/replacements" element={<TeacherReplacements />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/users" element={<UserManagement />} />
-        <Route path="/platform" element={<PlatformAdmin />} />
-        <Route path="/settings" element={<Settings />} />
+
+        {/* Timetable Viewing — accessible to all (view_timetable) */}
+        <Route path="/timetable" element={<Gated permissions={['view_timetable']}><TimetableView /></Gated>} />
+        <Route path="/reports" element={<Gated permissions={['view_timetable']}><Reports /></Gated>} />
+
+        {/* Setup & Configuration — admin/manager only */}
+        <Route path="/setup" element={<Gated permissions={['edit_setup']}><SetupWizard /></Gated>} />
+        <Route path="/periods" element={<Gated permissions={['edit_setup']}><PeriodStructure /></Gated>} />
+        <Route path="/settings" element={<Gated permissions={['manage_school']}><Settings /></Gated>} />
+
+        {/* Master Data — staff and above */}
+        <Route path="/teachers" element={<Gated permissions={['manage_teachers']}><Teachers /></Gated>} />
+        <Route path="/classes" element={<Gated permissions={['edit_setup']}><Classes /></Gated>} />
+        <Route path="/subjects" element={<Gated permissions={['edit_setup']}><Subjects /></Gated>} />
+        <Route path="/rooms" element={<Gated permissions={['edit_setup']}><Rooms /></Gated>} />
+
+        {/* Scheduling Configuration — manager and above */}
+        <Route path="/requirements" element={<Gated permissions={['manage_rules']}><SubjectRequirements /></Gated>} />
+        <Route path="/can-teach" element={<Gated permissions={['manage_teachers']}><CanTeachManager /></Gated>} />
+        <Route path="/combinations" element={<Gated permissions={['manage_rules']}><CombinationRules /></Gated>} />
+        <Route path="/rules" element={<Gated permissions={['manage_rules']}><CustomRules /></Gated>} />
+        <Route path="/generator" element={<Gated permissions={['generate_timetable']}><Generator /></Gated>} />
+        <Route path="/conflicts" element={<Gated permissions={['edit_timetable']}><ConflictCenter /></Gated>} />
+
+        {/* Operations — manager and above */}
+        <Route path="/absences" element={<Gated permissions={['manage_absences']}><Absences /></Gated>} />
+        <Route path="/substitutions" element={<Gated permissions={['approve_substitutions']}><Substitutions /></Gated>} />
+        <Route path="/replacements" element={<Gated permissions={['manage_replacements']}><TeacherReplacements /></Gated>} />
+
+        {/* System — admin only */}
+        <Route path="/users" element={<Gated permissions={['manage_users']}><UserManagement /></Gated>} />
+        <Route path="/audit-logs" element={<Gated permissions={['view_audit']}><AuditLogs /></Gated>} />
+
+        {/* Platform — platform users only */}
+        <Route path="/platform" element={<Gated platformOnly><PlatformAdmin /></Gated>} />
+
+        {/* Analytics & Roles */}
+        <Route path="/analytics" element={<Gated permissions={['view_timetable']}><AnalyticsDashboard /></Gated>} />
+        <Route path="/roles" element={<Gated permissions={['manage_users']}><RoleManagement /></Gated>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-  );
-}
-
-function PlaceholderPage({ title, desc }) {
-  return (
-    <div className="flex items-center justify-center py-24 animate-fade-in">
-      <div className="text-center">
-        <h1 className="page-title">{title}</h1>
-        <p className="text-slate-500 dark:text-dark-400 mt-2">{desc}</p>
-      </div>
-    </div>
   );
 }
 
@@ -114,3 +135,4 @@ export default function App() {
     </BrowserRouter>
   );
 }
+

@@ -18,8 +18,6 @@ const checkPlatformRole = (req, res) => {
 
 exports.getSystemHealth = async (req, res, next) => {
   try {
-    if (!checkPlatformRole(req, res)) return;
-
     // MongoDB connection status
     const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
     
@@ -41,6 +39,8 @@ exports.getSystemHealth = async (req, res, next) => {
         dbStatus,
         uptime,
         memoryUsageMb,
+        nodeVersion: process.version,
+        platform: process.platform,
         timestamp: new Date()
       }
     });

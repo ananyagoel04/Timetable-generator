@@ -4,6 +4,9 @@ const Teacher = require('../models/Teacher');
 const School = require('../models/School');
 const CanTeach = require('../models/CanTeach');
 const GeneratedTimetable = require('../models/GeneratedTimetable');
+const AuditLog = require('../models/AuditLog');
+const Absence = require('../models/Absence');
+const { createNotification } = require('./notificationController');
 
 exports.getSubstitutions = async (req, res, next) => {
   try {
@@ -20,6 +23,36 @@ exports.createSubstitution = async (req, res, next) => {
     const schoolId = req.schoolId || (await School.findOne())?._id;
     const sub = await Substitution.create({ ...req.body, school: schoolId });
     const populated = await sub.populate('originalTeacher substituteTeacher class subject');
+
+    // Audit log
+    await AuditLog.create({
+      school: schoolId,
+      action: 'create',
+      entityType: 'substitution',
+      entityId: sub._id,
+      entityName: `${populated.originalTeacher?.name} → ${populated.substituteTeacher?.name}`,
+      source: 'manual',
+      user: req.user?._id,
+      userName: req.user?.name,
+      userRole: req.user?.role,
+      newValue: { date: sub.date, period: sub.period, class: populated.class?.name },
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent']
+    });
+
+    // Notification
+    if (createNotification) {
+      await createNotification({
+        school: schoolId,
+        user: req.user?._id,
+        type: 'substitution_created',
+        title: 'Substitution Created',
+        message: `${populated.originalTeacher?.name} replaced by ${populated.substituteTeacher?.name} on ${new Date(sub.date).toLocaleDateString()} P${sub.period}`,
+        severity: 'info',
+        actionUrl: '/substitutions'
+      });
+    }
+
     res.status(201).json({ success: true, data: populated });
   } catch (err) { next(err); }
 };
@@ -35,6 +68,111 @@ exports.updateSubstitution = async (req, res, next) => {
 
 // ── ITEM #27: Enhanced teacher replacement suggestion logic ──
 // Returns available teachers RANKED by suitability score
+/**
+ * GET /api/substitutions/daily/:date — daily substitution sheet
+ */
+exports.getDailySheet = async (req, res, next) => {
+  try {
+    const schoolId = req.schoolId || (await School.findOne())?._id;
+    const date = new Date(req.params.date);
+    const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
+
+    const subs = await Substitution.find({
+      school: schoolId,
+      date: { $gte: startOfDay, $lte: endOfDay }
+    })
+      .populate('originalTeacher', 'name color department')
+      .populate('substituteTeacher', 'name color department')
+      .populate('class', 'name grade section')
+      .populate('subject', 'name shortName color')
+      .sort({ period: 1 });
+
+    // Find linked absences for the day
+    const absences = await Absence.find({
+      school: schoolId,
+      date: { $gte: startOfDay, $lte: endOfDay },
+      status: { $in: ['active', 'partial', 'resolved'] }
+    }).populate('teacher', 'name').lean();
+
+    // Map teacher → absence
+    const teacherAbsenceMap = {};
+    for (const a of absences) {
+      const tid = (a.teacher?._id || a.teacher)?.toString();
+      if (tid) teacherAbsenceMap[tid] = a;
+    }
+
+    // Enrich substitutions with absence link
+    const enriched = subs.map(s => {
+      const so = s.toObject();
+      const otid = (s.originalTeacher?._id || s.originalTeacher)?.toString();
+      so.linkedAbsence = otid ? teacherAbsenceMap[otid] || null : null;
+      return so;
+    });
+
+    // Summary stats
+    const byStatus = { pending: 0, confirmed: 0, completed: 0, cancelled: 0 };
+    for (const s of subs) byStatus[s.status] = (byStatus[s.status] || 0) + 1;
+
+    res.json({
+      success: true,
+      date: req.params.date,
+      count: enriched.length,
+      summary: byStatus,
+      absencesCount: absences.length,
+      data: enriched
+    });
+  } catch (err) { next(err); }
+};
+
+/**
+ * POST /api/substitutions/:id/approve — approve with audit + notification
+ */
+exports.approveSubstitution = async (req, res, next) => {
+  try {
+    const sub = await Substitution.findById(req.params.id)
+      .populate('originalTeacher substituteTeacher class subject');
+    if (!sub) return res.status(404).json({ success: false, error: 'Not found' });
+    if (sub.status !== 'pending') return res.status(400).json({ success: false, error: `Cannot approve: status is ${sub.status}` });
+
+    const before = { status: sub.status };
+    sub.status = 'confirmed';
+    await sub.save();
+
+    // Audit log
+    await AuditLog.create({
+      school: sub.school,
+      action: 'substitution_approve',
+      entityType: 'substitution',
+      entityId: sub._id,
+      entityName: `${sub.originalTeacher?.name} → ${sub.substituteTeacher?.name}`,
+      source: 'manual',
+      user: req.user?._id,
+      userName: req.user?.name,
+      userRole: req.user?.role,
+      oldValue: before,
+      newValue: { status: 'confirmed' },
+      ipAddress: req.ip,
+      userAgent: req.headers?.['user-agent']
+    });
+
+    // Notification
+    if (createNotification) {
+      await createNotification({
+        school: sub.school,
+        user: req.user?._id,
+        type: 'substitution_approved',
+        title: 'Substitution Approved',
+        message: `${sub.substituteTeacher?.name} confirmed as substitute for ${sub.originalTeacher?.name} on ${new Date(sub.date).toLocaleDateString()} P${sub.period}`,
+        severity: 'info',
+        actionUrl: '/substitutions'
+      });
+    }
+
+    res.json({ success: true, data: sub });
+  } catch (err) { next(err); }
+};
+
 exports.getAvailable = async (req, res, next) => {
   try {
     const { day, period, subjectId, classId, originalTeacherId } = req.query;

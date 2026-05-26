@@ -7,7 +7,7 @@ import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
   Lock, Unlock, ArrowLeftRight, Edit3, Save, X, AlertTriangle,
   GripVertical, Loader2, PenSquare, Users, BookOpen, DoorOpen,
-  RefreshCw, Move, Download, Printer, Eye, EyeOff, Undo2, History
+  RefreshCw, Move, Download, Printer, Eye, EyeOff, Undo2, Redo2, History
 } from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
@@ -21,9 +21,11 @@ const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: '
 // ═══════════════════════════════════════════════════════════════════
 // DRAGGABLE BLOCK CELL (dnd-kit)
 // ═══════════════════════════════════════════════════════════════════
-function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHighlighted }) {
+function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHighlighted, isMultiPeriod, spanSize }) {
   const isLocked = block?.isLocked;
   const isConsec = block?.consecutiveGroupId;
+  const duration = block?.duration || block?.periods?.length || 1;
+  const isAtomic = duration > 1 && (block?.periods?.length || 1) > 1;
 
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
     id: id,
@@ -33,20 +35,61 @@ function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHi
 
   if (!block) return null;
 
+  // Block type detection
+  const isActivity = block.type === 'activity' || block.subject?.type === 'activity' || block.subject?.type === 'games' || block.subject?.type === 'library';
+  const isClub = block.type === 'club' || block.subject?.type === 'club';
+  const isCombined = block.type === 'combined_class';
+  const isFlexBlock = isActivity || isClub;
+
+  // Room capacity check — tight if < 10% surplus
+  const roomCapacity = block.room?.capacity || 0;
+  const studentCount = block.studentCount || block.classes?.reduce((s, c) => s + (c?.studentCount || 30), 0) || 30;
+  const capacityTight = roomCapacity > 0 && studentCount > 0 && ((roomCapacity - studentCount) / roomCapacity) < 0.10;
+
+  // Type badges
+  const typeBadge = isAtomic ? (
+    <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-500/15 text-[7px] text-purple-400 font-bold" title={`${duration}-period block`}>
+      ⚡ {duration}P
+    </span>
+  ) : isConsec ? (
+    <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-500/10 text-[7px] text-purple-500 font-medium" title="Consecutive">
+      ⚡
+    </span>
+  ) : null;
+
+  // Activity/Club badge
+  const flexBadge = isActivity ? (
+    <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-teal-500/15 text-[7px] text-teal-400 font-bold" title="Activity">
+      🎯 Activity
+    </span>
+  ) : isClub ? (
+    <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-pink-500/15 text-[7px] text-pink-400 font-bold" title="Club">
+      🎪 Club
+    </span>
+  ) : null;
+
+  // Combined class names
+  const combinedNames = isCombined && block.classes?.length > 1
+    ? block.classes.map(c => c?.name || c?.shortName || '').filter(Boolean).join(' + ')
+    : null;
+
   return (
     <div
       ref={setDragRef}
       {...(editMode && !isLocked ? { ...attributes, ...listeners } : {})}
       onClick={() => onEdit(block)}
-      className={`p-2 rounded-xl text-[10px] relative min-h-[56px] transition-all duration-200 group select-none
+      className={`p-2 rounded-xl text-[10px] relative transition-all duration-200 group select-none
+        ${isMultiPeriod ? 'min-h-[120px]' : 'min-h-[56px]'}
         ${editMode && !isLocked ? 'cursor-grab active:cursor-grabbing hover:shadow-lg hover:scale-[1.02] hover:-translate-y-0.5' : 'cursor-pointer hover:shadow-sm'}
         ${isLocked ? 'opacity-80 ring-1 ring-amber-400/30' : ''}
         ${isDragging ? 'opacity-30 scale-95 ring-2 ring-primary-400' : ''}
         ${isHighlighted ? 'ring-2 ring-blue-400 shadow-lg' : ''}
-        ${isConsec ? 'border-l-4' : 'border-l-[3px]'}`}
+        ${isAtomic || isConsec ? 'border-l-4' : 'border-l-[3px]'}
+        ${isAtomic ? 'ring-1 ring-purple-400/20' : ''}
+        ${isFlexBlock ? 'border-dashed' : ''}`}
       style={{
-        backgroundColor: (block.subject?.color || '#6366f1') + '15',
-        borderLeftColor: block.subject?.color || '#6366f1'
+        backgroundColor: (block.subject?.color || '#6366f1') + (isAtomic ? '20' : isFlexBlock ? '12' : '15'),
+        borderLeftColor: isActivity ? '#14b8a6' : isClub ? '#ec4899' : (block.subject?.color || '#6366f1')
       }}
     >
       {editMode && !isLocked && (
@@ -56,18 +99,18 @@ function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHi
       )}
 
       <p className="font-semibold text-slate-800 dark:text-dark-50 truncate text-xs pl-3">{block.subject?.name || 'Free'}</p>
-      <p className="text-slate-500 dark:text-dark-400 truncate pl-3">{block.teacher?.shortName || block.teacher?.name || ''}</p>
+      <p className="text-slate-500 dark:text-dark-400 truncate pl-3">{block.teacher?.shortName || block.teacher?.name || (isFlexBlock ? '—' : '')}</p>
       <p className="text-slate-400 dark:text-dark-500 truncate pl-3">{block.room?.name || ''}</p>
       {block.studentGroup && <span className="text-[8px] text-purple-500 dark:text-purple-400 pl-3">👥 {block.studentGroup}</span>}
+      {isAtomic && <p className="text-[8px] text-purple-400 pl-3 mt-0.5">P{block.periods.join('-P')}</p>}
+      {combinedNames && <p className="text-[8px] text-blue-400 pl-3 mt-0.5 truncate" title={combinedNames}>🔗 {combinedNames}</p>}
 
-      <div className="absolute top-1 right-1 flex gap-0.5 items-center">
+      <div className="absolute top-1 right-1 flex gap-0.5 items-center flex-wrap justify-end max-w-[60%]">
         {isLocked && <span className="text-[8px]" title="Locked">🔒</span>}
-        {block.type === 'combined_class' && <span className="text-[8px]" title="Combined">🔗</span>}
-        {isConsec && (
-          <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-500/10 text-[7px] text-purple-500 font-medium" title="Consecutive">
-            ⚡
-          </span>
-        )}
+        {isCombined && !combinedNames && <span className="text-[8px]" title="Combined">🔗</span>}
+        {flexBadge}
+        {typeBadge}
+        {capacityTight && <span className="inline-flex items-center px-1 py-px rounded bg-red-500/15 text-[7px] text-red-400 font-bold" title={`Room: ${roomCapacity} seats, Students: ${studentCount}`}>⚠ Full</span>}
         {editMode && !isLocked && <PenSquare size={10} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
       </div>
 
@@ -161,6 +204,51 @@ export default function TimetableView() {
   const [editSaving, setEditSaving] = useState(false);
   const [moveConflicts, setMoveConflicts] = useState(null);
 
+  // Undo/Redo state
+  const [undoStatus, setUndoStatus] = useState({ undoCount: 0, redoCount: 0, lastUndoAction: null, lastRedoAction: null });
+
+  const fetchUndoStatus = useCallback(async () => {
+    if (!selectedTT) return;
+    try {
+      const r = await api.get(`/timetable/${selectedTT}/undo-status`);
+      setUndoStatus(r.data?.data || { undoCount: 0, redoCount: 0 });
+    } catch { /* non-critical */ }
+  }, [selectedTT]);
+
+  const handleUndo = useCallback(async () => {
+    if (!selectedTT || undoStatus.undoCount === 0) return;
+    try {
+      await api.post(`/timetable/${selectedTT}/undo`);
+      toast.success('Undone');
+      loadBlocks();
+      fetchUndoStatus();
+    } catch (err) { toast.error(err.response?.data?.data?.error || 'Undo failed'); }
+  }, [selectedTT, undoStatus.undoCount]);
+
+  const handleRedo = useCallback(async () => {
+    if (!selectedTT || undoStatus.redoCount === 0) return;
+    try {
+      await api.post(`/timetable/${selectedTT}/redo`);
+      toast.success('Redone');
+      loadBlocks();
+      fetchUndoStatus();
+    } catch (err) { toast.error(err.response?.data?.data?.error || 'Redo failed'); }
+  }, [selectedTT, undoStatus.redoCount]);
+
+  // Keyboard shortcuts: Ctrl+Z / Ctrl+Shift+Z
+  useEffect(() => {
+    const handler = (e) => {
+      const mod = navigator.platform.includes('Mac') ? e.metaKey : e.ctrlKey;
+      if (mod && !e.shiftKey && e.key === 'z') { e.preventDefault(); handleUndo(); }
+      if (mod && e.shiftKey && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); handleRedo(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleUndo, handleRedo]);
+
+  // Fetch undo status when timetable changes or blocks reload
+  useEffect(() => { fetchUndoStatus(); }, [selectedTT, blocks.length]);
+
   // dnd-kit sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -200,8 +288,14 @@ export default function TimetableView() {
     finally { setLoading(false); }
   };
 
+  // Get all blocks at a day+period (may be multiple for split groups)
   const getBlock = useCallback((day, period) =>
     blocks.find(b => b.day === day && b.periods?.includes(period) && b.type !== 'reserved'),
+    [blocks]
+  );
+
+  const getBlocksAt = useCallback((day, period) =>
+    blocks.filter(b => b.day === day && b.periods?.includes(period) && b.type !== 'reserved'),
     [blocks]
   );
 
@@ -209,6 +303,33 @@ export default function TimetableView() {
     !!blocks.find(b => b.type === 'reserved' && b.periods?.includes(period) && !b.subject),
     [blocks]
   );
+
+  // Build a set of periods that are "continuation" of a multi-period block
+  // (i.e., not the first period of an atomic block) to skip rendering them
+  const skipPeriods = useMemo(() => {
+    const skips = {}; // { "day_period": blockId }
+    for (const b of blocks) {
+      if ((b.duration || 1) > 1 && b.periods?.length > 1) {
+        const sorted = [...b.periods].sort((a, c) => a - c);
+        // Skip all periods after the first one
+        for (let i = 1; i < sorted.length; i++) {
+          skips[`${b.day}_${sorted[i]}`] = b._id;
+        }
+      }
+    }
+    return skips;
+  }, [blocks]);
+
+  // Get the span (rowSpan) for a multi-period block at its first period
+  const getBlockSpan = useCallback((day, period) => {
+    const block = getBlock(day, period);
+    if (!block) return 1;
+    if ((block.duration || 1) > 1 && block.periods?.length > 1) {
+      const sorted = [...block.periods].sort((a, c) => a - c);
+      if (sorted[0] === period) return sorted.length;
+    }
+    return 1;
+  }, [getBlock]);
 
   const periods = useMemo(() => Array.from({ length: maxPeriod }, (_, i) => i + 1), [maxPeriod]);
 
@@ -349,6 +470,8 @@ export default function TimetableView() {
   const totalBlocks = blocks.filter(b => b.type !== 'reserved').length;
   const lockedBlocks = blocks.filter(b => b.isLocked).length;
   const consecutiveGroups = [...new Set(blocks.filter(b => b.consecutiveGroupId).map(b => b.consecutiveGroupId))].length;
+  const multiPeriodBlocks = blocks.filter(b => (b.duration || 1) > 1 && b.periods?.length > 1).length;
+  const splitGroupBlocks = blocks.filter(b => b.type === 'split_group').length;
 
   // Visible working days
   const visibleDays = useMemo(() => {
@@ -397,7 +520,9 @@ export default function TimetableView() {
         <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-dark-400 flex-wrap">
           <span className="flex items-center gap-1"><BookOpen size={12} /> {totalBlocks} periods</span>
           <span className="flex items-center gap-1"><Lock size={12} /> {lockedBlocks} locked</span>
-          {consecutiveGroups > 0 && <span className="flex items-center gap-1 text-purple-500">⚡ {consecutiveGroups} consecutive</span>}
+          {multiPeriodBlocks > 0 && <span className="flex items-center gap-1 text-purple-500">⚡ {multiPeriodBlocks} multi-period</span>}
+          {consecutiveGroups > 0 && <span className="flex items-center gap-1 text-purple-400">🔗 {consecutiveGroups} linked</span>}
+          {splitGroupBlocks > 0 && <span className="flex items-center gap-1 text-teal-500">👥 {splitGroupBlocks} split-group</span>}
           {highlightTeacher && (
             <button onClick={() => setHighlightTeacher(null)} className="flex items-center gap-1 text-blue-500 hover:text-blue-400">
               <X size={12} /> Clear highlight
@@ -415,9 +540,25 @@ export default function TimetableView() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Edit Mode Active</p>
             <p className="text-[11px] text-amber-600 dark:text-amber-400/70">
-              <strong>Drag</strong> cells to swap positions · <strong>Click</strong> any cell to edit · Conflicts checked in real-time
+              <strong>Drag</strong> cells to swap positions · <strong>Click</strong> any cell to edit · <strong>Ctrl+Z</strong> to undo
               {pendingSwaps.length > 0 && <span className="text-amber-700 dark:text-amber-300 font-semibold"> · {pendingSwaps.length} swap(s) pending</span>}
             </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            {/* Undo/Redo buttons */}
+            <button onClick={handleUndo} disabled={undoStatus.undoCount === 0}
+              className={`p-2 rounded-lg text-xs font-medium transition-all border ${undoStatus.undoCount > 0 ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30' : 'bg-slate-50 dark:bg-dark-800 border-slate-200 dark:border-dark-700 text-slate-300 dark:text-dark-600 cursor-not-allowed'}`}
+              title={`Undo${undoStatus.lastUndoAction ? ` (${undoStatus.lastUndoAction})` : ''} — Ctrl+Z`}>
+              <Undo2 size={14} />
+            </button>
+            <button onClick={handleRedo} disabled={undoStatus.redoCount === 0}
+              className={`p-2 rounded-lg text-xs font-medium transition-all border ${undoStatus.redoCount > 0 ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30' : 'bg-slate-50 dark:bg-dark-800 border-slate-200 dark:border-dark-700 text-slate-300 dark:text-dark-600 cursor-not-allowed'}`}
+              title={`Redo${undoStatus.lastRedoAction ? ` (${undoStatus.lastRedoAction})` : ''} — Ctrl+Shift+Z`}>
+              <Redo2 size={14} />
+            </button>
+            {undoStatus.undoCount > 0 && (
+              <span className="flex items-center text-[10px] text-blue-500 dark:text-blue-400">{undoStatus.undoCount} undo{undoStatus.undoCount > 1 ? 's' : ''}</span>
+            )}
           </div>
           {pendingSwaps.length > 0 && (
             <div className="flex gap-2 shrink-0">
@@ -485,13 +626,39 @@ export default function TimetableView() {
                         </td>
                         {visibleDays.map(d => {
                           if (brk) return <td key={d} className="px-1.5 py-1 text-center text-[10px] text-amber-400/60">Break</td>;
-                          const block = getBlock(d, p);
+
+                          // Skip if this period is a continuation of a multi-period block
+                          if (skipPeriods[`${d}_${p}`]) return null;
+
+                          const allBlocksHere = getBlocksAt(d, p);
+                          const block = allBlocksHere[0];
+                          const isSplitGroup = allBlocksHere.length > 1 && allBlocksHere.every(b => b.type === 'split_group');
+                          const span = getBlockSpan(d, p);
                           const cellId = `${d}-${p}`;
                           const isHighlighted = highlightTeacher && block?.teacher?._id === highlightTeacher;
 
                           return (
                             <DroppableCell key={d} id={cellId} day={d} period={p} editMode={editMode}>
-                              {block && (
+                              {isSplitGroup ? (
+                                /* Split group: stacked mini-cards */
+                                <div className="space-y-1">
+                                  {allBlocksHere.map((sg, idx) => (
+                                    <div key={sg._id || idx}
+                                      onClick={() => openBlockEdit(sg)}
+                                      className="p-1.5 rounded-lg text-[9px] cursor-pointer hover:shadow-sm transition-all border-l-[3px]"
+                                      style={{
+                                        backgroundColor: (sg.subject?.color || '#6366f1') + '12',
+                                        borderLeftColor: sg.subject?.color || '#6366f1'
+                                      }}>
+                                      <p className="font-semibold text-slate-800 dark:text-dark-50 truncate">{sg.subject?.name}</p>
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-slate-400 dark:text-dark-500 truncate">{sg.teacher?.shortName || sg.teacher?.name}</span>
+                                        <span className="text-purple-400 text-[8px]">👥 {sg.studentGroup}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : block ? (
                                 <DraggableBlock
                                   id={`block-${block._id}-${d}-${p}`}
                                   block={block}
@@ -501,8 +668,10 @@ export default function TimetableView() {
                                   onEdit={openBlockEdit}
                                   onLock={handleLock}
                                   isHighlighted={isHighlighted}
+                                  isMultiPeriod={span > 1}
+                                  spanSize={span}
                                 />
-                              )}
+                              ) : null}
                             </DroppableCell>
                           );
                         })}
@@ -525,8 +694,8 @@ export default function TimetableView() {
       <div className="flex flex-wrap gap-4 text-[10px] text-slate-500 dark:text-dark-400 px-1">
         <span className="flex items-center gap-1">🔒 Locked</span>
         <span className="flex items-center gap-1">🔗 Combined</span>
-        <span className="flex items-center gap-1">👥 Split Group</span>
-        <span className="flex items-center gap-1 text-purple-500">⚡ Consecutive</span>
+        <span className="flex items-center gap-1">👥 Split Group (stacked)</span>
+        <span className="flex items-center gap-1 text-purple-500">⚡ Multi-period (merged)</span>
         {editMode && (
           <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium border border-amber-200 dark:border-amber-800/30 rounded-lg px-2 py-0.5 bg-amber-50 dark:bg-amber-900/10">
             <GripVertical size={10} /> Drag to swap · Click to edit

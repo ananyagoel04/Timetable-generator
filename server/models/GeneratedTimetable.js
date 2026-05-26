@@ -25,6 +25,8 @@ const generatedTimetableSchema = new mongoose.Schema({
     teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'Teacher' },
     reason: { type: String }
   }],
+  // Structured diagnostics from generation engine
+  diagnostics: { type: mongoose.Schema.Types.Mixed, default: {} },
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 

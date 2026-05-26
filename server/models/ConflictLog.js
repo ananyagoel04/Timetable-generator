@@ -22,6 +22,19 @@ const conflictLogSchema = new mongoose.Schema({
   title: { type: String, required: true },
   message: { type: String, required: true },
   suggestedFix: { type: String },
+  // Structured resolution suggestions
+  suggestedFixes: [{
+    action: { type: String },        // 'move_to_period', 'swap_teacher', 'change_room', 'split_combined'
+    targetDay: { type: String },
+    targetPeriod: { type: Number },
+    targetTeacher: { type: mongoose.Schema.Types.ObjectId, ref: 'Teacher' },
+    targetRoom: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
+    description: { type: String },
+    confidence: { type: Number, min: 0, max: 100 }  // How likely this fix resolves it
+  }],
+  // Grouping + auto-resolution
+  groupId: { type: String, trim: true },       // Group related conflicts together
+  autoResolvable: { type: Boolean, default: false },
   // Resolution
   isResolved: { type: Boolean, default: false },
   resolvedAt: { type: Date },
@@ -29,5 +42,7 @@ const conflictLogSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 conflictLogSchema.index({ timetable: 1, type: 1, isResolved: 1 });
+conflictLogSchema.index({ timetable: 1, severity: 1, createdAt: -1 });
 
 module.exports = mongoose.model('ConflictLog', conflictLogSchema);
+

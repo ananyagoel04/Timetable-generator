@@ -31,7 +31,18 @@ router.post('/preferences', authorize('manage_rules'), sc.createPreference);
 router.put('/preferences/:id', authorize('manage_rules'), sc.updatePreference);
 router.delete('/preferences/:id', authorize('manage_rules'), sc.deletePreference);
 
+// Setup Status (fixes 404 on frontend setup-wizard check)
+router.get('/status', authorize('view_timetable', 'edit_setup', 'manage_school'), sc.getSetupStatus);
+
+// Readiness Audit (deep validation)
+router.get('/readiness-audit', authorize('edit_setup', 'manage_school'), sc.getReadinessAudit);
+
+// Validate Step
+router.post('/validate-step', authorize('edit_setup', 'manage_school'), sc.validateStep);
+
 // Seed Data
 router.post('/seed', authorize('edit_setup', 'manage_school'), seedCtrl.seedData);
 
+
 module.exports = router;
+

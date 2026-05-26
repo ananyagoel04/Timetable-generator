@@ -281,6 +281,8 @@ However, **critical workflows required for real school operations are incomplete
 | 3 | `/api/rules/soft-preferences` endpoint missing | 🟠 High |
 | 4 | `/api/setup/status` endpoint missing | 🟡 Medium |
 | 5 | `/api/diagnostics/health` returns empty object | 🟡 Medium |
-| 6 | Only 1 CSS responsive breakpoint (768px) of 6 required | 🟡 Medium |
+| 6 | Only 1 CSS responsive breakpoint (768px) of 6 required. Tablet layout steals too much screen space. | 🟡 Medium |
 | 7 | 22/25 pages lack PermissionGate protection | 🔴 Critical |
 | 8 | 5 pages still use `window.confirm()` instead of ConfirmDialog | 🟡 Medium |
+| 9 | Overly aggressive auth rate limiting (30 req/15min) causes instant 429 lockouts during simple UI navigation | 🔴 Critical |
+| 10 | Class 1-A has 0 normal blocks generated in latest timetables, revealing engine assignment bugs | 🟠 High |
