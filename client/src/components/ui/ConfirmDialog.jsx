@@ -51,7 +51,7 @@ export default function ConfirmDialog({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="">
+    <Modal isOpen={open} onClose={onClose} title="">
       <div className="text-center py-2">
         {/* Icon */}
         <div className={`w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-4 ${variant === 'danger' ? 'bg-red-500/10' : variant === 'warning' ? 'bg-amber-500/10' : 'bg-primary-500/10'}`}>

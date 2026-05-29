@@ -237,6 +237,47 @@ class PDFExporter {
     return doc.output('arraybuffer');
   }
 
+  // ── Room Timetable PDF ──
+  generateRoomTimetable(roomInfo, blocks, workingDays, totalPeriods) {
+    const doc = this._createDoc('landscape');
+    const startY = this._addHeader(doc, `Room Timetable: ${roomInfo.name}`, `Type: ${roomInfo.type || 'Classroom'} | Capacity: ${roomInfo.capacity || '-'}`);
+
+    const days = workingDays || DAYS_ORDER.slice(0, 6);
+    const headers = ['Period', ...days.map(d => DAY_SHORT[d] || d)];
+
+    const rows = [];
+    for (let p = 1; p <= totalPeriods; p++) {
+      const row = [`P${p}`];
+      for (const day of days) {
+        const block = blocks.find(b => b.day === day && b.periods?.includes(p));
+        if (block) {
+          const parts = [block.subject?.name || ''];
+          if (block.teacher?.shortName || block.teacher?.name) parts.push(block.teacher.shortName || block.teacher.name);
+          if (block.classes?.length) parts.push(block.classes.map(c => c.name).join('+'));
+          row.push(parts.join('\n'));
+        } else {
+          row.push('FREE');
+        }
+      }
+      rows.push(row);
+    }
+
+    doc.autoTable({
+      head: [headers],
+      body: rows,
+      startY,
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2, halign: 'center', valign: 'middle', lineWidth: 0.1 },
+      headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+      alternateRowStyles: { fillColor: [240, 249, 255] },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 16 } },
+      margin: { top: startY, left: 8, right: 8 }
+    });
+
+    this._addFooter(doc);
+    return doc.output('arraybuffer');
+  }
+
   // ── Full School Timetable PDF (all classes) ──
   generateFullSchoolPDF(classReports, workingDays, totalPeriods) {
     const doc = this._createDoc('landscape');

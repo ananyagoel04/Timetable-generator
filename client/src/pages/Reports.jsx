@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Calendar, Users, BookOpen, Printer, Download, Filter, Settings2, X, AlertTriangle, CheckCircle, Loader2, UserMinus, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Calendar, Users, BookOpen, Printer, Download, Filter, Settings2, X, AlertTriangle, CheckCircle, Loader2, UserMinus, RefreshCw, Building2, BarChart3, ClipboardList, DoorOpen, FileSpreadsheet } from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Modal from '../components/ui/Modal';
@@ -11,10 +11,12 @@ export default function Reports() {
   const [timetables, setTimetables] = useState([]);
   const [classes, setClasses] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [rooms, setRooms] = useState([]);
   const [selectedTT, setSelectedTT] = useState('');
   const [selectedDay, setSelectedDay] = useState('Monday');
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedTeacher, setSelectedTeacher] = useState('');
+  const [selectedRoom, setSelectedRoom] = useState('');
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [maxPeriod, setMaxPeriod] = useState(8);
@@ -24,6 +26,15 @@ export default function Reports() {
   const [replacementDateTo, setReplacementDateTo] = useState('');
   const [replacementTeacher, setReplacementTeacher] = useState('');
   const [replacementData, setReplacementData] = useState(null);
+
+  // New tab data
+  const [workloadData, setWorkloadData] = useState(null);
+  const [roomUtilData, setRoomUtilData] = useState(null);
+  const [conflictData, setConflictData] = useState(null);
+  const [auditData, setAuditData] = useState(null);
+  const [auditFrom, setAuditFrom] = useState('');
+  const [auditTo, setAuditTo] = useState('');
+  const [auditModule, setAuditModule] = useState('');
 
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printConfig, setPrintConfig] = useState({
@@ -40,13 +51,14 @@ export default function Reports() {
     Promise.all([
       api.get('/timetable/list').then(r => { const d = r.data?.data || r.data || []; setTimetables(d); if (d.length) setSelectedTT(d[0]._id); }),
       api.get('/classes').then(r => { const d = r.data?.data || r.data || []; setClasses(d); if (d.length) setSelectedClass(d[0]._id); }),
-      api.get('/teachers').then(r => { const d = r.data?.data || r.data || []; setTeachers(d); if (d.length) setSelectedTeacher(d[0]._id); })
+      api.get('/teachers').then(r => { const d = r.data?.data || r.data || []; setTeachers(d); if (d.length) setSelectedTeacher(d[0]._id); }),
+      api.get('/rooms').then(r => { const d = r.data?.data || r.data || []; setRooms(d); if (d.length) setSelectedRoom(d[0]._id); }).catch(() => {})
     ]);
   }, []);
 
-  const fetchReport = async () => {
-    if (tab === 'replacement') {
-      fetchReplacementReport();
+  const fetchReport = useCallback(async () => {
+    if (['replacement', 'workload', 'room-util', 'conflict', 'audit', 'room-timetable'].includes(tab)) {
+      fetchSpecialReport();
       return;
     }
     if (!selectedTT) return toast.error('Select a timetable');
@@ -67,26 +79,51 @@ export default function Reports() {
         const d = r.data?.data || r.data;
         setReportData(d); setMaxPeriod(d?.maxPeriod || 8);
       }
-    } catch (err) { toast.error(err.response?.data?.error || 'Failed to load report'); }
+    } catch (err) { toast.error(err.response?.data?.error || err.message || 'Failed to load report'); }
     finally { setLoading(false); }
-  };
+  }, [tab, selectedTT, selectedDay, selectedClass, selectedTeacher]);
 
-  const fetchReplacementReport = async () => {
+  const fetchSpecialReport = async () => {
     setLoading(true);
     try {
-      let url = `/reports/replacement-report?date=${replacementDate}`;
-      if (replacementDateTo) url += `&from=${replacementDate}&to=${replacementDateTo}`;
-      if (replacementTeacher) url += `&teacherId=${replacementTeacher}`;
-      const r = await api.get(url);
-      setReplacementData(r.data?.data || r.data);
-    } catch (err) { toast.error('Failed to load replacement report'); }
+      if (tab === 'replacement') {
+        let url = `/reports/replacement-report?date=${replacementDate}`;
+        if (replacementDateTo) url += `&from=${replacementDate}&to=${replacementDateTo}`;
+        if (replacementTeacher) url += `&teacherId=${replacementTeacher}`;
+        const r = await api.get(url);
+        setReplacementData(r.data?.data || r.data);
+      } else if (tab === 'workload') {
+        const r = await api.get(`/reports/teacher-workload${selectedTT ? `?timetableId=${selectedTT}` : ''}`);
+        setWorkloadData(r.data?.data || r.data);
+      } else if (tab === 'room-util') {
+        const r = await api.get(`/reports/room-utilization${selectedTT ? `?timetableId=${selectedTT}` : ''}`);
+        setRoomUtilData(r.data?.data || r.data);
+      } else if (tab === 'conflict') {
+        const r = await api.get(`/reports/conflict-report${selectedTT ? `?timetableId=${selectedTT}` : ''}`);
+        setConflictData(r.data?.data || r.data);
+      } else if (tab === 'audit') {
+        let url = '/reports/audit-report?limit=50';
+        if (auditFrom) url += `&from=${auditFrom}`;
+        if (auditTo) url += `&to=${auditTo}`;
+        if (auditModule) url += `&module=${auditModule}`;
+        const r = await api.get(url);
+        setAuditData(r.data?.data || r.data);
+      } else if (tab === 'room-timetable') {
+        let url = `/reports/room-timetable${selectedTT ? `?timetableId=${selectedTT}` : ''}`;
+        if (selectedRoom) url += `${selectedTT ? '&' : '?'}roomId=${selectedRoom}`;
+        const r = await api.get(url);
+        setReportData(r.data?.data || r.data);
+      }
+    } catch (err) { toast.error(err.message || 'Failed to load report'); }
     finally { setLoading(false); }
   };
 
   useEffect(() => {
-    if (tab === 'replacement') fetchReplacementReport();
+    if (tab === 'replacement') fetchSpecialReport();
+    else if (['workload', 'room-util', 'conflict', 'audit'].includes(tab)) fetchSpecialReport();
+    else if (tab === 'room-timetable' && selectedRoom) fetchSpecialReport();
     else if (selectedTT) fetchReport();
-  }, [tab, selectedTT, selectedDay, selectedClass, selectedTeacher]);
+  }, [tab, selectedTT, selectedDay, selectedClass, selectedTeacher, selectedRoom]);
 
   const exportCSV = () => {
     let csv = '';
@@ -123,6 +160,18 @@ export default function Reports() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadExcel = async (endpoint) => {
+    try {
+      toast.loading('Generating Excel...', { id: 'excel' });
+      const res = await api.get(endpoint, { responseType: 'blob' });
+      const blob = new Blob([res.data || res], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
+      link.download = `report_${tab}_${Date.now()}.xlsx`; link.click();
+      URL.revokeObjectURL(link.href);
+      toast.success('Excel downloaded!', { id: 'excel' });
+    } catch (err) { toast.error('Excel export failed: ' + (err.message || 'Unknown error'), { id: 'excel' }); }
+  };
+
   const downloadPDF = async () => {
     try {
       let url = '';
@@ -134,12 +183,16 @@ export default function Reports() {
         url = `/export/timetable/pdf?timetableId=${selectedTT}`;
       } else if (tab === 'replacement') {
         url = `/export/daily-sheet/pdf?date=${replacementDate}`;
+      } else if (tab === 'workload') {
+        url = `/export/workload/pdf`;
+      } else if (tab === 'room-timetable' && selectedRoom) {
+        url = `/export/timetable/room-pdf?roomId=${selectedRoom}${selectedTT ? `&timetableId=${selectedTT}` : ''}`;
       } else {
         return toast.error('Select a valid report to export');
       }
       toast.loading('Generating PDF...', { id: 'pdf' });
       const res = await api.get(url, { responseType: 'blob' });
-      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const blob = new Blob([res.data || res], { type: 'application/pdf' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = `report_${tab}_${Date.now()}.pdf`;
@@ -158,12 +211,36 @@ export default function Reports() {
     setShowPrintModal(false);
   };
 
+  // Get export buttons for current tab
+  const getExportButtons = () => {
+    const buttons = [];
+    if (['day-wise', 'class-weekly', 'teacher-weekly', 'replacement', 'workload', 'room-timetable'].includes(tab)) {
+      buttons.push({ label: 'PDF', icon: Download, onClick: downloadPDF });
+    }
+    if (['day-wise', 'class-weekly', 'teacher-weekly', 'replacement'].includes(tab)) {
+      buttons.push({ label: 'CSV', icon: FileSpreadsheet, onClick: exportCSV });
+    }
+    if (tab === 'workload') buttons.push({ label: 'Excel', icon: FileSpreadsheet, onClick: () => downloadExcel('/export/workload/excel') });
+    if (tab === 'room-util') buttons.push({ label: 'Excel', icon: FileSpreadsheet, onClick: () => downloadExcel('/export/room-utilization/excel') });
+    if (tab === 'conflict') buttons.push({ label: 'Excel', icon: FileSpreadsheet, onClick: () => downloadExcel('/export/conflicts/excel') });
+    if (tab === 'audit') buttons.push({ label: 'Excel', icon: FileSpreadsheet, onClick: () => downloadExcel(`/export/audit/excel${auditFrom ? `?from=${auditFrom}` : ''}${auditTo ? `${auditFrom ? '&' : '?'}to=${auditTo}` : ''}`) });
+    if (tab === 'room-timetable') buttons.push({ label: 'Excel', icon: FileSpreadsheet, onClick: () => downloadExcel(`/export/timetable/room-excel${selectedRoom ? `?roomId=${selectedRoom}` : ''}`) });
+    return buttons;
+  };
+
   const tabs = [
     { id: 'day-wise', label: 'Day-Wise', icon: Calendar },
     { id: 'class-weekly', label: 'Class Weekly', icon: BookOpen },
     { id: 'teacher-weekly', label: 'Teacher Weekly', icon: Users },
-    { id: 'replacement', label: 'Replacement', icon: UserMinus }
+    { id: 'replacement', label: 'Replacement', icon: UserMinus },
+    { id: 'workload', label: 'Workload', icon: BarChart3 },
+    { id: 'room-timetable', label: 'Room Timetable', icon: DoorOpen },
+    { id: 'room-util', label: 'Room Utilization', icon: Building2 },
+    { id: 'conflict', label: 'Conflicts', icon: AlertTriangle },
+    { id: 'audit', label: 'Audit Trail', icon: ClipboardList },
   ];
+
+  const exportButtons = getExportButtons();
 
   return (
     <div className="space-y-5 animate-fade-in relative">
@@ -176,8 +253,10 @@ export default function Reports() {
         <div><h1 className="page-title">Reports</h1><p className="page-subtitle">Generate, view, and export timetable reports</p></div>
         <div className="flex gap-2">
           <button onClick={() => setShowPrintModal(true)} className="btn-secondary flex items-center gap-2 text-sm"><Printer size={14} /> Print</button>
-          <button onClick={downloadPDF} className="btn-secondary flex items-center gap-2 text-sm"><Download size={14} /> PDF</button>
-          <button onClick={exportCSV} className="btn-primary flex items-center gap-2 text-sm"><Download size={14} /> CSV</button>
+          {exportButtons.map((b, i) => {
+            const Icon = b.icon;
+            return <button key={i} onClick={b.onClick} className={`${i === 0 ? 'btn-primary' : 'btn-secondary'} flex items-center gap-2 text-sm`}><Icon size={14} /> {b.label}</button>;
+          })}
         </div>
       </div>
 
@@ -197,7 +276,7 @@ export default function Reports() {
 
       {/* Filters */}
       <div className="glass-card p-4 flex flex-wrap gap-3 items-end no-print">
-        {tab !== 'replacement' && (
+        {!['replacement', 'audit'].includes(tab) && (
           <div className="min-w-[180px]">
             <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Timetable</label>
             <select value={selectedTT} onChange={e => setSelectedTT(e.target.value)} className="select-field text-sm">
@@ -229,6 +308,14 @@ export default function Reports() {
             </select>
           </div>
         )}
+        {tab === 'room-timetable' && (
+          <div className="min-w-[180px]">
+            <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Room</label>
+            <select value={selectedRoom} onChange={e => setSelectedRoom(e.target.value)} className="select-field text-sm">
+              {rooms.map(r => <option key={r._id} value={r._id}>{r.name} ({r.type})</option>)}
+            </select>
+          </div>
+        )}
         {tab === 'replacement' && (
           <>
             <div className="min-w-[130px]">
@@ -248,7 +335,30 @@ export default function Reports() {
             </div>
           </>
         )}
-        <button onClick={fetchReport} className="btn-secondary flex items-center gap-2 text-sm"><RefreshCw size={14} /> Refresh</button>
+        {tab === 'audit' && (
+          <>
+            <div className="min-w-[130px]">
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">From Date</label>
+              <input type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)} className="input-field text-sm" />
+            </div>
+            <div className="min-w-[130px]">
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">To Date</label>
+              <input type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)} className="input-field text-sm" />
+            </div>
+            <div className="min-w-[140px]">
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Module</label>
+              <select value={auditModule} onChange={e => setAuditModule(e.target.value)} className="select-field text-sm">
+                <option value="">All Modules</option>
+                <option value="timetable">Timetable</option>
+                <option value="substitution">Substitution</option>
+                <option value="teacher">Teacher</option>
+                <option value="class">Class</option>
+                <option value="auth">Auth</option>
+              </select>
+            </div>
+          </>
+        )}
+        <button onClick={() => { if (['replacement', 'workload', 'room-util', 'conflict', 'audit', 'room-timetable'].includes(tab)) fetchSpecialReport(); else fetchReport(); }} className="btn-secondary flex items-center gap-2 text-sm"><RefreshCw size={14} /> Refresh</button>
       </div>
 
       {/* Report Content */}
@@ -256,6 +366,16 @@ export default function Reports() {
         <div className="glass-card p-16 text-center"><Loader2 className="animate-spin text-primary-500 mx-auto" size={24} /></div>
       ) : tab === 'replacement' ? (
         <ReplacementReport data={replacementData} />
+      ) : tab === 'workload' ? (
+        <WorkloadReport data={workloadData} />
+      ) : tab === 'room-util' ? (
+        <RoomUtilReport data={roomUtilData} />
+      ) : tab === 'conflict' ? (
+        <ConflictReport data={conflictData} />
+      ) : tab === 'audit' ? (
+        <AuditReport data={auditData} />
+      ) : tab === 'room-timetable' ? (
+        <RoomTimetableReport data={reportData} />
       ) : !reportData ? (
         <div className="glass-card p-16 text-center text-slate-400 dark:text-dark-500">Select filters and generate a report</div>
       ) : tab === 'day-wise' ? (
@@ -349,6 +469,241 @@ export default function Reports() {
     </div>
   );
 }
+
+// ═══════════════════════════════════════════════════════════════
+// WORKLOAD REPORT
+// ═══════════════════════════════════════════════════════════════
+function WorkloadReport({ data }) {
+  if (!data?.report?.length) return <div className="glass-card p-12 text-center text-slate-400 dark:text-dark-500">No workload data available. Generate a timetable first.</div>;
+  const summary = data.summary || {};
+  const statusColor = { overloaded: 'text-red-500 bg-red-50 dark:bg-red-500/10', optimal: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10', moderate: 'text-blue-500 bg-blue-50 dark:bg-blue-500/10', underutilized: 'text-amber-500 bg-amber-50 dark:bg-amber-500/10' };
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-slate-800 dark:text-dark-100">{summary.totalTeachers}</p><p className="text-[10px] text-slate-500 dark:text-dark-400">Total Teachers</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-red-500">{summary.overloaded}</p><p className="text-[10px] text-slate-500 dark:text-dark-400">Overloaded</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-amber-500">{summary.underutilized}</p><p className="text-[10px] text-slate-500 dark:text-dark-400">Underutilized</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-primary-500">{summary.avgUtilization}%</p><p className="text-[10px] text-slate-500 dark:text-dark-400">Avg Utilization</p></div>
+      </div>
+      <div className="glass-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full print-table">
+            <thead><tr className="table-header">
+              <th className="p-3 text-left text-xs">Teacher</th><th className="p-3 text-left text-xs">Dept</th>
+              <th className="p-3 text-center text-xs">Mon</th><th className="p-3 text-center text-xs">Tue</th><th className="p-3 text-center text-xs">Wed</th><th className="p-3 text-center text-xs">Thu</th><th className="p-3 text-center text-xs">Fri</th><th className="p-3 text-center text-xs">Sat</th>
+              <th className="p-3 text-center text-xs">Total</th><th className="p-3 text-center text-xs">Max/Wk</th><th className="p-3 text-center text-xs">Load</th><th className="p-3 text-center text-xs">Status</th>
+            </tr></thead>
+            <tbody>
+              {data.report.map((r, i) => (
+                <tr key={i} className="table-row">
+                  <td className="p-3 text-xs font-medium text-slate-800 dark:text-dark-100">{r.teacher?.name}</td>
+                  <td className="p-3 text-xs text-slate-500 dark:text-dark-400">{r.teacher?.department}</td>
+                  {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map(d => (
+                    <td key={d} className={`p-3 text-center text-xs ${(r.dayLoads?.[d] || 0) > r.maxPerDay ? 'text-red-500 font-bold' : ''}`}>{r.dayLoads?.[d] || 0}</td>
+                  ))}
+                  <td className="p-3 text-center text-xs font-semibold">{r.totalPeriods}</td>
+                  <td className="p-3 text-center text-xs text-slate-400">{r.maxPerWeek}</td>
+                  <td className="p-3 text-center text-xs font-semibold">{r.utilization}%</td>
+                  <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusColor[r.status] || ''}`}>{r.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ROOM UTILIZATION REPORT
+// ═══════════════════════════════════════════════════════════════
+function RoomUtilReport({ data }) {
+  if (!data?.report?.length) return <div className="glass-card p-12 text-center text-slate-400 dark:text-dark-500">No room data available. Generate a timetable first.</div>;
+  const summary = data.summary || {};
+  const statusColor = { high: 'text-red-500 bg-red-50 dark:bg-red-500/10', moderate: 'text-blue-500 bg-blue-50 dark:bg-blue-500/10', low: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10' };
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-slate-800 dark:text-dark-100">{summary.totalRooms}</p><p className="text-[10px] text-slate-500 dark:text-dark-400">Total Rooms</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-primary-500">{summary.avgUtilization}%</p><p className="text-[10px] text-slate-500 dark:text-dark-400">Avg Utilization</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-red-500">{summary.highUsage}</p><p className="text-[10px] text-slate-500 dark:text-dark-400">High Usage</p></div>
+      </div>
+      <div className="glass-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full print-table">
+            <thead><tr className="table-header">
+              <th className="p-3 text-left text-xs">Room</th><th className="p-3 text-left text-xs">Type</th>
+              <th className="p-3 text-center text-xs">Capacity</th><th className="p-3 text-center text-xs">Used</th><th className="p-3 text-center text-xs">Total</th><th className="p-3 text-center text-xs">Utilization</th><th className="p-3 text-center text-xs">Status</th>
+            </tr></thead>
+            <tbody>
+              {data.report.map((r, i) => (
+                <tr key={i} className="table-row">
+                  <td className="p-3 text-xs font-medium text-slate-800 dark:text-dark-100">{r.room?.name}</td>
+                  <td className="p-3 text-xs text-slate-500 dark:text-dark-400">{r.room?.type}</td>
+                  <td className="p-3 text-center text-xs">{r.room?.capacity}</td>
+                  <td className="p-3 text-center text-xs">{r.usedSlots}</td>
+                  <td className="p-3 text-center text-xs text-slate-400">{r.totalSlots}</td>
+                  <td className="p-3 text-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="w-16 h-1.5 bg-slate-200 dark:bg-dark-700 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${r.utilization > 80 ? 'bg-red-500' : r.utilization > 40 ? 'bg-blue-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, r.utilization)}%` }} />
+                      </div>
+                      <span className="text-xs font-semibold">{r.utilization}%</span>
+                    </div>
+                  </td>
+                  <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusColor[r.status] || ''}`}>{r.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONFLICT REPORT
+// ═══════════════════════════════════════════════════════════════
+function ConflictReport({ data }) {
+  if (!data) return <div className="glass-card p-12 text-center text-slate-400 dark:text-dark-500">No conflict data available.</div>;
+  const summary = data.summary || {};
+  const sevColor = { critical: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400', high: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400', medium: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400', low: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400' };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-slate-800 dark:text-dark-100">{summary.total}</p><p className="text-[10px] text-slate-500">Total</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-emerald-500">{summary.resolved}</p><p className="text-[10px] text-slate-500">Resolved</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-red-500">{summary.unresolved}</p><p className="text-[10px] text-slate-500">Unresolved</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-primary-500">{summary.resolutionRate || 0}%</p><p className="text-[10px] text-slate-500">Resolution Rate</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-red-500">{summary.bySeverity?.critical || 0}</p><p className="text-[10px] text-slate-500">Critical</p></div>
+      </div>
+      {data.conflicts?.length > 0 ? (
+        <div className="glass-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full print-table">
+              <thead><tr className="table-header">
+                <th className="p-3 text-left text-xs">Severity</th><th className="p-3 text-left text-xs">Type</th><th className="p-3 text-left text-xs">Day</th><th className="p-3 text-left text-xs">Period</th><th className="p-3 text-left text-xs">Description</th><th className="p-3 text-center text-xs">Status</th>
+              </tr></thead>
+              <tbody>
+                {data.conflicts.map((c, i) => (
+                  <tr key={i} className="table-row">
+                    <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${sevColor[c.severity] || ''}`}>{c.severity}</span></td>
+                    <td className="p-3 text-xs text-slate-600 dark:text-dark-300">{c.type}</td>
+                    <td className="p-3 text-xs">{c.day || '—'}</td>
+                    <td className="p-3 text-xs">{c.period || '—'}</td>
+                    <td className="p-3 text-xs text-slate-700 dark:text-dark-200 max-w-xs truncate">{c.description || c.message || '—'}</td>
+                    <td className="p-3 text-center">{c.isResolved ? <CheckCircle size={14} className="text-emerald-500 mx-auto" /> : <AlertTriangle size={14} className="text-red-500 mx-auto" />}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="glass-card p-12 text-center text-emerald-500 dark:text-emerald-400 flex flex-col items-center gap-2">
+          <CheckCircle size={32} />
+          <p className="text-sm font-medium">No conflicts detected!</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUDIT REPORT
+// ═══════════════════════════════════════════════════════════════
+function AuditReport({ data }) {
+  if (!data) return <div className="glass-card p-12 text-center text-slate-400 dark:text-dark-500">Select a date range and click Refresh</div>;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-slate-800 dark:text-dark-100">{data.total || 0}</p><p className="text-[10px] text-slate-500">Total Entries</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-primary-500">{data.page || 1}</p><p className="text-[10px] text-slate-500">Page {data.page || 1} of {data.totalPages || 1}</p></div>
+        <div className="glass-card p-4 text-center"><p className="text-2xl font-bold text-slate-600 dark:text-dark-200">{Object.keys(data.summary?.moduleSummary || {}).length}</p><p className="text-[10px] text-slate-500">Modules</p></div>
+      </div>
+      {data.logs?.length > 0 ? (
+        <div className="glass-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full print-table">
+              <thead><tr className="table-header">
+                <th className="p-3 text-left text-xs">Date</th><th className="p-3 text-left text-xs">User</th><th className="p-3 text-left text-xs">Action</th><th className="p-3 text-left text-xs">Module</th><th className="p-3 text-left text-xs">Details</th>
+              </tr></thead>
+              <tbody>
+                {data.logs.map((l, i) => (
+                  <tr key={i} className="table-row">
+                    <td className="p-3 text-xs text-slate-500">{l.createdAt ? new Date(l.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
+                    <td className="p-3 text-xs font-medium text-slate-800 dark:text-dark-100">{l.user?.name || l.userName || '—'}</td>
+                    <td className="p-3 text-xs"><span className="px-2 py-0.5 rounded-full bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 text-[10px] font-medium">{l.action}</span></td>
+                    <td className="p-3 text-xs text-slate-500">{l.module || '—'}</td>
+                    <td className="p-3 text-xs text-slate-600 dark:text-dark-300 max-w-xs truncate">{typeof l.details === 'string' ? l.details : JSON.stringify(l.details || '').slice(0, 100)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="glass-card p-12 text-center text-slate-400 dark:text-dark-500">No audit logs found for this filter</div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ROOM TIMETABLE REPORT
+// ═══════════════════════════════════════════════════════════════
+function RoomTimetableReport({ data }) {
+  if (!data?.rooms?.length) return <div className="glass-card p-12 text-center text-slate-400 dark:text-dark-500">No room timetable data. Select a room and ensure a timetable exists.</div>;
+  return (
+    <div className="space-y-4">
+      {data.rooms.map((r, idx) => (
+        <div key={idx} className="glass-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-200 dark:border-dark-700/50 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-800 dark:text-dark-100">{r.room?.name}</p>
+              <p className="text-xs text-slate-500 dark:text-dark-400">Type: {r.room?.type} · Capacity: {r.room?.capacity} · {r.totalPeriods} teaching periods</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] print-table">
+              <thead>
+                <tr className="table-header">
+                  <th className="p-3 text-left w-20 text-xs">Period</th>
+                  {DAYS.map(d => <th key={d} className="p-3 text-center text-xs">{d.slice(0, 3)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 8 }, (_, i) => i + 1).map(p => (
+                  <tr key={p} className="table-row">
+                    <td className="p-3 text-xs font-medium text-slate-600 dark:text-dark-300">P{p}</td>
+                    {DAYS.map(d => {
+                      const slot = r.schedule?.[d]?.find(s => s.period === p);
+                      if (!slot) return <td key={d} className="p-3 text-center text-slate-300 dark:text-dark-600 text-xs">—</td>;
+                      return (
+                        <td key={d} className="p-2 text-center" style={{ borderLeft: slot.subject?.color ? `3px solid ${slot.subject.color}` : undefined }}>
+                          <p className="text-xs font-medium text-slate-800 dark:text-dark-100">{slot.subject?.name || '—'}</p>
+                          {slot.teacher && <p className="text-[10px] text-slate-500 dark:text-dark-400">{slot.teacher.shortName || slot.teacher.name}</p>}
+                          {slot.classes?.length > 0 && <p className="text-[10px] text-slate-400">{slot.classes.map(c => c.name).join(', ')}</p>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EXISTING COMPONENTS (unchanged)
+// ═══════════════════════════════════════════════════════════════
 
 function ReplacementReport({ data }) {
   if (!data) return <div className="glass-card p-16 text-center text-slate-400 dark:text-dark-500">Select a date to view replacement report</div>;

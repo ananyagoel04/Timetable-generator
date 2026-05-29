@@ -110,6 +110,7 @@ app.use('/api/subjects', require('./routes/subjects'));
 app.use('/api/classes', require('./routes/classes'));
 app.use('/api/rooms', require('./routes/rooms'));
 app.use('/api/rules', require('./routes/rules'));
+app.use('/api/timetable/manual', require('./routes/manualTimetable'));
 app.use('/api/timetable', require('./routes/timetable'));
 app.use('/api/absences', require('./routes/absences'));
 app.use('/api/substitutions', require('./routes/substitutions'));

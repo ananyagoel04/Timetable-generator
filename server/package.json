@@ -6,7 +6,13 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "seed": "node seed/seedData.js"
+    "worker:generation": "node workers/generationWorker.js",
+    "dev:all": "npx -y concurrently \"npm run dev\" \"npm run worker:generation\"",
+    "seed": "node seed/seedData.js --reset",
+    "seed:reset": "node seed/seedData.js --reset",
+    "seed:multi-school": "node seed/seedData.js",
+    "seed:timetable-test": "node seed/seedData.js --reset",
+    "indexes:fix": "node scripts/fixIndexes.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

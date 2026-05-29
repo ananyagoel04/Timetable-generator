@@ -20,6 +20,8 @@ router.get('/:timetableId/blocks', authorize('view_timetable'), tc.getTimetableB
 router.get('/:timetableId/class/:classId', authorize('view_timetable'), tc.getClassBlocks);
 router.get('/:timetableId/teacher/:teacherId', authorize('view_timetable'), tc.getTeacherBlocks);
 router.put('/:timetableId/publish', authorize('publish_timetable'), tc.publishTimetable);
+router.put('/:timetableId/unpublish', authorize('publish_timetable'), tc.unpublishTimetable);
+router.put('/:timetableId/rename', authorize('edit_timetable'), tc.renameTimetable);
 
 // Conflict management (enhanced)
 router.get('/:timetableId/conflicts', authorize('view_timetable'), cc.getConflicts);

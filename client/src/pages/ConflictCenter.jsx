@@ -2,10 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   RefreshCw, CheckCircle, Users, DoorOpen, Clock, AlertTriangle, BookOpen,
   XCircle, Filter, Zap, ChevronDown, ChevronUp, Check, X, Wrench,
-  RotateCcw, Layers, ArrowRight
+  RotateCcw, Layers, ArrowRight, Eye, EyeOff, LayoutGrid, List, Loader2
 } from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
+import PermissionGate from '../components/ui/PermissionGate';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import Modal from '../components/ui/Modal';
 
 const TYPE_CONFIG = {
   teacher_clash: { icon: Users, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20', label: 'Teacher Double-Booked' },
@@ -43,6 +46,16 @@ export default function ConflictCenter() {
   const [batchSelected, setBatchSelected] = useState(new Set());
   const [revalidating, setRevalidating] = useState(false);
   const [resolveReason, setResolveReason] = useState('');
+
+  // Group-by-type view
+  const [viewGrouped, setViewGrouped] = useState(false);
+
+  // Fix preview
+  const [fixPreview, setFixPreview] = useState(null); // { conflict, fixIndex, fix }
+  const [fixPreviewLoading, setFixPreviewLoading] = useState(false);
+
+  // Batch confirm
+  const [confirmBatch, setConfirmBatch] = useState(null); // { autoFix: bool }
 
   // Filters
   const [filterType, setFilterType] = useState('');
@@ -109,6 +122,21 @@ export default function ConflictCenter() {
       }
       fetchConflicts();
     } catch (err) { toast.error(err.response?.data?.error || 'Auto-fix failed'); }
+    setResolving(null); setFixPreview(null);
+  };
+
+  const openFixPreview = (conflict, fixIndex, fix) => {
+    setFixPreview({ conflict, fixIndex, fix });
+  };
+
+  const handleIgnore = async (conflictId) => {
+    setResolving(conflictId);
+    try {
+      await api.put(`/timetable/${selectedTT}/conflicts/${conflictId}/resolve`, { reason: resolveReason || 'Acknowledged and ignored' });
+      toast.success('Conflict acknowledged');
+      setResolveReason('');
+      fetchConflicts();
+    } catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
     setResolving(null);
   };
 
@@ -123,7 +151,19 @@ export default function ConflictCenter() {
       setBatchSelected(new Set());
       fetchConflicts();
     } catch (err) { toast.error('Batch resolve failed'); }
+    setConfirmBatch(null);
   };
+
+  // Group by type
+  const groupedConflicts = useMemo(() => {
+    const groups = {};
+    for (const c of filtered) {
+      const key = c.type || 'unknown';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(c);
+    }
+    return Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+  }, [filtered]);
 
   const handleRevalidate = async () => {
     setRevalidating(true);
@@ -222,15 +262,21 @@ export default function ConflictCenter() {
                 {batchSelected.size === filtered.length ? 'Deselect All' : 'Select All'}
               </button>
               {batchSelected.size > 0 && (
-                <>
-                  <button onClick={() => handleBatchResolve(true)} className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">
-                    <Zap size={10} className="inline mr-1" />Auto-fix {batchSelected.size}
-                  </button>
-                  <button onClick={() => handleBatchResolve(false)} className="text-[10px] px-2.5 py-1 rounded-lg bg-slate-500/20 text-slate-400 dark:text-dark-300 hover:bg-slate-500/30 transition-colors">
-                    Override {batchSelected.size}
-                  </button>
-                </>
+                <PermissionGate permissions={['edit_timetable']}>
+                  <>
+                    <button onClick={() => setConfirmBatch({ autoFix: true })} className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">
+                      <Zap size={10} className="inline mr-1" />Auto-fix {batchSelected.size}
+                    </button>
+                    <button onClick={() => setConfirmBatch({ autoFix: false })} className="text-[10px] px-2.5 py-1 rounded-lg bg-slate-500/20 text-slate-400 dark:text-dark-300 hover:bg-slate-500/30 transition-colors">
+                      Override {batchSelected.size}
+                    </button>
+                  </>
+                </PermissionGate>
               )}
+              <div className="h-5 w-px bg-slate-300 dark:bg-dark-700 mx-1" />
+              <button onClick={() => setViewGrouped(!viewGrouped)} className={`p-1.5 rounded-lg transition-colors ${viewGrouped ? 'bg-primary-500/20 text-primary-400' : 'text-slate-400 dark:text-dark-500 hover:bg-slate-100 dark:hover:bg-dark-800'}`} title={viewGrouped ? 'Flat view' : 'Group by type'}>
+                {viewGrouped ? <List size={14} /> : <LayoutGrid size={14} />}
+              </button>
             </>
           )}
         </div>
@@ -287,18 +333,26 @@ export default function ConflictCenter() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {!showResolved && c.suggestedFixes?.length > 0 && (
-                      <button onClick={() => handleAutoFix(c._id, 0)} disabled={resolving === c._id}
-                        className="text-[10px] px-2.5 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors flex items-center gap-1">
-                        <Zap size={10} />Fix
-                      </button>
-                    )}
-                    {!showResolved && (
-                      <button onClick={() => handleResolve(c._id)} disabled={resolving === c._id}
-                        className="text-[10px] px-2.5 py-1.5 rounded-lg bg-slate-500/20 text-slate-400 dark:text-dark-300 hover:bg-slate-500/30 transition-colors flex items-center gap-1">
-                        <Check size={10} />Override
-                      </button>
-                    )}
+                    <PermissionGate permissions={['edit_timetable']}>
+                      {!showResolved && c.suggestedFixes?.length > 0 && (
+                        <button onClick={() => openFixPreview(c, 0, c.suggestedFixes[0])} disabled={resolving === c._id}
+                          className="text-[10px] px-2.5 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors flex items-center gap-1">
+                          <Zap size={10} />Fix
+                        </button>
+                      )}
+                      {!showResolved && (
+                        <>
+                          <button onClick={() => handleIgnore(c._id)} disabled={resolving === c._id}
+                            className="text-[10px] px-2.5 py-1.5 rounded-lg bg-slate-500/20 text-slate-400 dark:text-dark-300 hover:bg-slate-500/30 transition-colors flex items-center gap-1">
+                            <EyeOff size={10} />Ignore
+                          </button>
+                          <button onClick={() => handleResolve(c._id)} disabled={resolving === c._id}
+                            className="text-[10px] px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors flex items-center gap-1">
+                            <Check size={10} />Override
+                          </button>
+                        </>
+                      )}
+                    </PermissionGate>
                     <button onClick={() => setExpandedId(isExpanded ? null : c._id)}
                       className="p-1.5 rounded-lg hover:bg-white/50 dark:hover:bg-dark-700/50 text-slate-400 dark:text-dark-500 transition-colors">
                       {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -322,10 +376,16 @@ export default function ConflictCenter() {
                                 <span className="text-xs text-slate-700 dark:text-dark-200 flex-1">{fix.description || fix.action}</span>
                                 <span className="text-[10px] text-slate-400 dark:text-dark-500">{fix.confidence}% confidence</span>
                                 {!showResolved && (
-                                  <button onClick={() => handleAutoFix(c._id, fi)} disabled={resolving === c._id}
-                                    className="text-[10px] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">
-                                    Apply
-                                  </button>
+                                  <PermissionGate permissions={['edit_timetable']}>
+                                    <button onClick={() => openFixPreview(c, fi, fix)} disabled={resolving === c._id}
+                                      className="text-[10px] px-2 py-1 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors flex items-center gap-1">
+                                      <Eye size={9} />Preview
+                                    </button>
+                                    <button onClick={() => handleAutoFix(c._id, fi)} disabled={resolving === c._id}
+                                      className="text-[10px] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">
+                                      Apply
+                                    </button>
+                                  </PermissionGate>
                                 )}
                               </div>
                             );
@@ -367,9 +427,60 @@ export default function ConflictCenter() {
                 )}
               </div>
             );
-          })}
+           })}
         </div>
       )}
+
+      {/* Fix Preview Modal */}
+      {fixPreview && (
+        <Modal isOpen={!!fixPreview} onClose={() => setFixPreview(null)} title="Fix Preview" size="md">
+          <div className="space-y-4">
+            <div className="bg-white/40 dark:bg-dark-800/40 rounded-xl p-3 space-y-2">
+              <p className="text-xs text-slate-500 dark:text-dark-400 uppercase tracking-wider">Conflict</p>
+              <p className="text-sm font-medium text-slate-900 dark:text-dark-50">{fixPreview.conflict?.title || TYPE_CONFIG[fixPreview.conflict?.type]?.label}</p>
+              <p className="text-xs text-slate-600 dark:text-dark-300">{fixPreview.conflict?.message}</p>
+              {fixPreview.conflict?.day && <p className="text-[10px] text-slate-400 dark:text-dark-500">{fixPreview.conflict.day} · Period {fixPreview.conflict.period}</p>}
+            </div>
+            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 space-y-2">
+              <p className="text-xs text-emerald-400 uppercase tracking-wider">Proposed Fix</p>
+              <p className="text-sm text-slate-900 dark:text-dark-50">{fixPreview.fix?.description || fixPreview.fix?.action}</p>
+              <div className="flex gap-3 text-[10px] text-slate-500 dark:text-dark-400">
+                <span>Confidence: <strong className={fixPreview.fix?.confidence >= 80 ? 'text-emerald-400' : fixPreview.fix?.confidence >= 50 ? 'text-amber-400' : 'text-red-400'}>{fixPreview.fix?.confidence}%</strong></span>
+                <span>Action: {fixPreview.fix?.action?.replace(/_/g, ' ')}</span>
+              </div>
+              {fixPreview.fix?.target && (
+                <div className="text-[10px] text-slate-500 dark:text-dark-400">
+                  {fixPreview.fix.target.day && <span>→ {fixPreview.fix.target.day} P{fixPreview.fix.target.period}</span>}
+                  {fixPreview.fix.target.teacher && <span> · Teacher: {fixPreview.fix.target.teacher}</span>}
+                  {fixPreview.fix.target.room && <span> · Room: {fixPreview.fix.target.room}</span>}
+                </div>
+              )}
+            </div>
+            <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-2.5">
+              <p className="text-[10px] text-amber-400 flex items-center gap-1"><AlertTriangle size={10} />Applying this fix may create new conflicts which will appear in a re-scan.</p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setFixPreview(null)} className="btn-secondary text-sm">Cancel</button>
+              <button onClick={() => handleAutoFix(fixPreview.conflict._id, fixPreview.fixIndex)} disabled={resolving === fixPreview.conflict._id}
+                className="btn-primary text-sm flex items-center gap-2">
+                {resolving === fixPreview.conflict._id ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+                Apply Fix
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Batch Confirm Dialog */}
+      <ConfirmDialog
+        open={!!confirmBatch}
+        onClose={() => setConfirmBatch(null)}
+        onConfirm={() => confirmBatch && handleBatchResolve(confirmBatch.autoFix)}
+        title={confirmBatch?.autoFix ? `Auto-fix ${batchSelected.size} conflicts?` : `Override ${batchSelected.size} conflicts?`}
+        message={confirmBatch?.autoFix ? 'The system will attempt to apply the best fix for each selected conflict.' : 'Selected conflicts will be marked as resolved/overridden.'}
+        confirmText={confirmBatch?.autoFix ? 'Auto-fix All' : 'Override All'}
+        variant={confirmBatch?.autoFix ? 'default' : 'warning'}
+      />
     </div>
   );
 }

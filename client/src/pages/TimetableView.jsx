@@ -7,8 +7,10 @@ import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
   Lock, Unlock, ArrowLeftRight, Edit3, Save, X, AlertTriangle,
   GripVertical, Loader2, PenSquare, Users, BookOpen, DoorOpen,
-  RefreshCw, Move, Download, Printer, Eye, EyeOff, Undo2, Redo2, History
+  RefreshCw, Move, Download, Printer, Eye, EyeOff, Undo2, Redo2, History,
+  Upload, RotateCcw, Camera, GitCompare, ChevronRight, Pencil, Check, Archive, Plus, Minus, ArrowRight
 } from 'lucide-react';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Modal from '../components/ui/Modal';
@@ -207,6 +209,25 @@ export default function TimetableView() {
   // Undo/Redo state
   const [undoStatus, setUndoStatus] = useState({ undoCount: 0, redoCount: 0, lastUndoAction: null, lastRedoAction: null });
 
+  // ═══════════════ PUBLISH / SNAPSHOT / COMPARE STATE ═══════════════
+  const [ttMeta, setTtMeta] = useState(null); // { status, publishedAt, publishedBy, name }
+  const [showSnapshotDrawer, setShowSnapshotDrawer] = useState(false);
+  const [snapshots, setSnapshots] = useState([]);
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
+  const [snapshotLabel, setSnapshotLabel] = useState('');
+  const [creatingSnapshot, setCreatingSnapshot] = useState(false);
+  const [compareData, setCompareData] = useState(null);
+  const [compareSnap, setCompareSnap] = useState(null);
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [confirmPublish, setConfirmPublish] = useState(false);
+  const [confirmUnpublish, setConfirmUnpublish] = useState(false);
+  const [confirmRollback, setConfirmRollback] = useState(null);
+  const [publishLoading, setPublishLoading] = useState(false);
+  const [rollbackLoading, setRollbackLoading] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [dragValidation, setDragValidation] = useState(null); // { valid, conflicts, warnings }
+
   const fetchUndoStatus = useCallback(async () => {
     if (!selectedTT) return;
     try {
@@ -248,6 +269,90 @@ export default function TimetableView() {
 
   // Fetch undo status when timetable changes or blocks reload
   useEffect(() => { fetchUndoStatus(); }, [selectedTT, blocks.length]);
+
+  // ═══════════════ PUBLISH / SNAPSHOT HANDLERS ═══════════════
+  const fetchTtMeta = useCallback(async () => {
+    if (!selectedTT) return;
+    const tt = timetables.find(t => t._id === selectedTT);
+    if (tt) setTtMeta(tt);
+  }, [selectedTT, timetables]);
+
+  useEffect(() => { fetchTtMeta(); }, [fetchTtMeta]);
+
+  const fetchSnapshots = useCallback(async () => {
+    if (!selectedTT) return;
+    setSnapshotsLoading(true);
+    try {
+      const r = await api.get(`/timetable/${selectedTT}/snapshots`);
+      setSnapshots(r.data?.data || r.data || []);
+    } catch { setSnapshots([]); }
+    setSnapshotsLoading(false);
+  }, [selectedTT]);
+
+  useEffect(() => { if (showSnapshotDrawer) fetchSnapshots(); }, [showSnapshotDrawer, selectedTT]);
+
+  const handlePublish = async () => {
+    setPublishLoading(true);
+    try {
+      await api.put(`/timetable/${selectedTT}/publish`);
+      toast.success('Timetable published!');
+      const r = await api.get('/timetable/list');
+      setTimetables(r.data?.data || r.data || []);
+    } catch (err) { toast.error(err.response?.data?.error || 'Publish failed'); }
+    setPublishLoading(false); setConfirmPublish(false);
+  };
+
+  const handleUnpublish = async () => {
+    setPublishLoading(true);
+    try {
+      await api.put(`/timetable/${selectedTT}/unpublish`);
+      toast.success('Timetable reverted to draft');
+      const r = await api.get('/timetable/list');
+      setTimetables(r.data?.data || r.data || []);
+    } catch (err) { toast.error(err.response?.data?.error || 'Unpublish failed'); }
+    setPublishLoading(false); setConfirmUnpublish(false);
+  };
+
+  const handleRename = async () => {
+    if (!renameValue.trim()) return;
+    try {
+      await api.put(`/timetable/${selectedTT}/rename`, { name: renameValue.trim() });
+      toast.success('Timetable renamed');
+      const r = await api.get('/timetable/list');
+      setTimetables(r.data?.data || r.data || []);
+      setRenaming(false);
+    } catch (err) { toast.error(err.response?.data?.error || 'Rename failed'); }
+  };
+
+  const handleCreateSnapshot = async () => {
+    setCreatingSnapshot(true);
+    try {
+      const r = await api.post(`/timetable/${selectedTT}/snapshot`, { label: snapshotLabel || undefined });
+      toast.success(`Snapshot v${r.data?.data?.version} created`);
+      setSnapshotLabel('');
+      fetchSnapshots();
+    } catch (err) { toast.error(err.response?.data?.error || 'Failed to create snapshot'); }
+    setCreatingSnapshot(false);
+  };
+
+  const handleCompare = async (snapId) => {
+    try {
+      const r = await api.get(`/timetable/${selectedTT}/compare/${snapId}`);
+      setCompareData(r.data?.data || r.data);
+      setCompareSnap(snapshots.find(s => s._id === snapId));
+      setShowCompareModal(true);
+    } catch (err) { toast.error(err.response?.data?.error || 'Compare failed'); }
+  };
+
+  const handleRollback = async (snapId) => {
+    setRollbackLoading(true);
+    try {
+      const r = await api.post(`/timetable/${selectedTT}/rollback/${snapId}`);
+      toast.success(`Rolled back to v${r.data?.data?.version || ''} — ${r.data?.data?.blocksRestored || 0} blocks restored`);
+      loadBlocks(); fetchSnapshots();
+    } catch (err) { toast.error(err.response?.data?.error || 'Rollback failed'); }
+    setRollbackLoading(false); setConfirmRollback(null);
+  };
 
   // dnd-kit sensors
   const sensors = useSensors(
@@ -484,7 +589,22 @@ export default function TimetableView() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
-          <h1 className="page-title">Timetable Editor</h1>
+          <div className="flex items-center gap-2">
+            {renaming ? (
+              <div className="flex items-center gap-1.5">
+                <input value={renameValue} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleRename()} autoFocus className="input-field text-sm py-1 w-48" placeholder="Timetable name" />
+                <button onClick={handleRename} className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"><Check size={14} /></button>
+                <button onClick={() => setRenaming(false)} className="p-1.5 rounded-lg bg-slate-500/20 text-slate-400 hover:bg-slate-500/30"><X size={14} /></button>
+              </div>
+            ) : (
+              <>
+                <h1 className="page-title">{ttMeta?.name || 'Timetable Editor'}</h1>
+                <PermissionGate permissions={['edit_timetable']}>
+                  <button onClick={() => { setRenaming(true); setRenameValue(ttMeta?.name || ''); }} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-dark-700 text-slate-400 dark:text-dark-500" title="Rename"><Pencil size={12} /></button>
+                </PermissionGate>
+              </>
+            )}
+          </div>
           <p className="page-subtitle">View, edit, drag-drop swap, and manage lesson blocks</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -502,9 +622,28 @@ export default function TimetableView() {
             : <select value={selectedTeacher} onChange={e => setSelectedTeacher(e.target.value)} className="select-field w-44 text-xs"><option value="">Select</option>{teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}</select>
           }
           <button onClick={loadBlocks} className="btn-secondary p-2" title="Refresh"><RefreshCw size={14} /></button>
+          <button onClick={() => window.print()} className="btn-secondary p-2" title="Print"><Printer size={14} /></button>
+          <button onClick={async () => {
+            try {
+              toast.loading('Generating PDF...', { id: 'tt-pdf' });
+              const params = viewMode === 'class' && selectedClass
+                ? `?timetableId=${selectedTT}&classId=${selectedClass}`
+                : viewMode === 'teacher' && selectedTeacher
+                ? `?timetableId=${selectedTT}&teacherId=${selectedTeacher}`
+                : `?timetableId=${selectedTT}`;
+              const endpoint = viewMode === 'teacher' ? '/export/timetable/teacher-pdf' : '/export/timetable/pdf';
+              const res = await api.get(`${endpoint}${params}`, { responseType: 'blob' });
+              const blob = new Blob([res.data || res], { type: 'application/pdf' });
+              const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
+              link.download = `timetable_${viewMode}_${Date.now()}.pdf`; link.click();
+              URL.revokeObjectURL(link.href);
+              toast.success('PDF downloaded!', { id: 'tt-pdf' });
+            } catch (err) { toast.error('PDF export failed', { id: 'tt-pdf' }); }
+          }} className="btn-secondary p-2" title="Export PDF"><Download size={14} /></button>
           <button onClick={() => setShowCompact(!showCompact)} className="btn-secondary p-2" title={showCompact ? 'Expand' : 'Compact'}>
             {showCompact ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
+          <button onClick={() => setShowSnapshotDrawer(!showSnapshotDrawer)} className={`btn-secondary p-2 ${showSnapshotDrawer ? 'ring-2 ring-primary-500/40' : ''}`} title="Version History"><History size={14} /></button>
           <PermissionGate permissions={['edit_timetable']}>
             <button onClick={() => { setEditMode(!editMode); setPendingSwaps([]); }}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${editMode ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30' : 'btn-secondary'}`}>
@@ -514,6 +653,35 @@ export default function TimetableView() {
           </PermissionGate>
         </div>
       </div>
+
+      {/* ═══════════════ PUBLISH / STATUS BAR ═══════════════ */}
+      {selectedTT && ttMeta && (
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-white/60 dark:bg-dark-800/60 border border-slate-200/50 dark:border-dark-700/50 flex-wrap">
+          <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold uppercase tracking-wider ${
+            ttMeta.status === 'published' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+            ttMeta.status === 'archived' ? 'bg-slate-500/20 text-slate-400 border border-slate-500/30' :
+            'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+          }`}>{ttMeta.status || 'draft'}</span>
+          {ttMeta.publishedAt && <span className="text-[10px] text-slate-400 dark:text-dark-500">Published {new Date(ttMeta.publishedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} by {ttMeta.publishedBy || 'admin'}</span>}
+          <div className="flex-1" />
+          <PermissionGate permissions={['edit_timetable']}>
+            <button onClick={handleCreateSnapshot} disabled={creatingSnapshot} className="btn-secondary text-[10px] px-2.5 py-1.5 flex items-center gap-1">
+              <Camera size={11} />{creatingSnapshot ? 'Saving...' : 'Snapshot'}
+            </button>
+          </PermissionGate>
+          <PermissionGate permissions={['publish_timetable']}>
+            {ttMeta.status === 'published' ? (
+              <button onClick={() => setConfirmUnpublish(true)} className="text-[10px] px-2.5 py-1.5 rounded-lg bg-slate-500/20 text-slate-400 hover:bg-slate-500/30 transition-colors flex items-center gap-1">
+                <Archive size={11} />Unpublish
+              </button>
+            ) : (
+              <button onClick={() => setConfirmPublish(true)} className="text-[10px] px-2.5 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors flex items-center gap-1">
+                <Upload size={11} />Publish
+              </button>
+            )}
+          </PermissionGate>
+        </div>
+      )}
 
       {/* Stats Bar */}
       {blocks.length > 0 && (
@@ -824,6 +992,156 @@ export default function TimetableView() {
           </div>
         </Modal>
       )}
+
+      {/* ═══════════════ SNAPSHOT HISTORY DRAWER ═══════════════ */}
+      {showSnapshotDrawer && (
+        <div className="fixed inset-y-0 right-0 w-80 max-w-full bg-white dark:bg-dark-900 border-l border-slate-200 dark:border-dark-700 shadow-2xl z-50 flex flex-col animate-slide-up" style={{animationDuration:'200ms'}}>
+          <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-dark-700">
+            <h3 className="font-semibold text-slate-900 dark:text-dark-50 text-sm flex items-center gap-2"><History size={16} className="text-primary-500" />Version History</h3>
+            <button onClick={() => setShowSnapshotDrawer(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-800 text-slate-400"><X size={16} /></button>
+          </div>
+          {/* Create snapshot */}
+          <PermissionGate permissions={['edit_timetable']}>
+            <div className="p-3 border-b border-slate-200 dark:border-dark-700 flex gap-2">
+              <input value={snapshotLabel} onChange={e => setSnapshotLabel(e.target.value)} placeholder="Snapshot label (optional)" className="input-field text-xs flex-1" />
+              <button onClick={handleCreateSnapshot} disabled={creatingSnapshot} className="btn-primary text-xs px-3 py-1.5 shrink-0">{creatingSnapshot ? '...' : <Camera size={13} />}</button>
+            </div>
+          </PermissionGate>
+          {/* Snapshot list */}
+          <div className="flex-1 overflow-y-auto">
+            {snapshotsLoading ? (
+              <div className="p-8 text-center text-slate-400"><Loader2 className="animate-spin mx-auto" size={20} /></div>
+            ) : snapshots.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 dark:text-dark-500 text-xs">No snapshots yet. Create one to track versions.</div>
+            ) : snapshots.map(s => (
+              <div key={s._id} className="p-3 border-b border-slate-100 dark:border-dark-800 hover:bg-slate-50 dark:hover:bg-dark-800/50 transition-colors">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-slate-900 dark:text-dark-50">v{s.version}</span>
+                  {s.isPublished && <span className="text-[8px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">Published</span>}
+                </div>
+                <p className="text-[10px] text-slate-600 dark:text-dark-300 mb-1 truncate">{s.label || s.description || `Snapshot v${s.version}`}</p>
+                <p className="text-[9px] text-slate-400 dark:text-dark-500 mb-2">{new Date(s.createdAt).toLocaleString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })} · {s.createdBy || 'admin'}</p>
+                {s.stats && <div className="flex gap-2 text-[9px] text-slate-400 dark:text-dark-500 mb-2"><span>{s.stats.totalBlocks || 0} blocks</span>{s.stats.qualityScore != null && <span>Score: {Math.round(s.stats.qualityScore)}%</span>}</div>}
+                <div className="flex gap-1.5">
+                  <button onClick={() => handleCompare(s._id)} className="text-[10px] px-2 py-1 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors flex items-center gap-1"><GitCompare size={10} />Compare</button>
+                  <PermissionGate permissions={['edit_timetable']}>
+                    <button onClick={() => setConfirmRollback(s)} className="text-[10px] px-2 py-1 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors flex items-center gap-1"><RotateCcw size={10} />Rollback</button>
+                  </PermissionGate>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ COMPARE MODAL ═══════════════ */}
+      {showCompareModal && compareData && (
+        <Modal isOpen={showCompareModal} onClose={() => { setShowCompareModal(false); setCompareData(null); }} title={`Compare with v${compareSnap?.version || '?'}`} size="lg">
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+            {/* Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="bg-emerald-50 dark:bg-emerald-900/10 rounded-lg p-2.5 text-center border border-emerald-200/30 dark:border-emerald-800/30">
+                <Plus size={14} className="mx-auto text-emerald-400 mb-1" />
+                <p className="text-lg font-bold text-emerald-400">{compareData.added?.length || 0}</p>
+                <p className="text-[9px] text-slate-500 dark:text-dark-400">Added</p>
+              </div>
+              <div className="bg-red-50 dark:bg-red-900/10 rounded-lg p-2.5 text-center border border-red-200/30 dark:border-red-800/30">
+                <Minus size={14} className="mx-auto text-red-400 mb-1" />
+                <p className="text-lg font-bold text-red-400">{compareData.removed?.length || 0}</p>
+                <p className="text-[9px] text-slate-500 dark:text-dark-400">Removed</p>
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-900/10 rounded-lg p-2.5 text-center border border-blue-200/30 dark:border-blue-800/30">
+                <ArrowRight size={14} className="mx-auto text-blue-400 mb-1" />
+                <p className="text-lg font-bold text-blue-400">{compareData.moved?.length || 0}</p>
+                <p className="text-[9px] text-slate-500 dark:text-dark-400">Moved</p>
+              </div>
+              <div className="bg-amber-50 dark:bg-amber-900/10 rounded-lg p-2.5 text-center border border-amber-200/30 dark:border-amber-800/30">
+                <Edit3 size={14} className="mx-auto text-amber-400 mb-1" />
+                <p className="text-lg font-bold text-amber-400">{compareData.changed?.length || 0}</p>
+                <p className="text-[9px] text-slate-500 dark:text-dark-400">Changed</p>
+              </div>
+            </div>
+
+            {/* Individual block diffs */}
+            {compareData.added?.length > 0 && (
+              <div>
+                <p className="text-[10px] text-emerald-400 uppercase tracking-wider mb-2 font-semibold">Added Blocks</p>
+                <div className="space-y-1">{compareData.added.map((b, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                    <Plus size={10} className="text-emerald-400 shrink-0" />
+                    <span className="text-slate-700 dark:text-dark-200">{b.day} P{b.period}</span>
+                    <span className="text-slate-500 dark:text-dark-400">·</span>
+                    <span className="text-slate-600 dark:text-dark-300">{b.subject || '?'}</span>
+                    <span className="text-slate-400 dark:text-dark-500 text-[10px]">({b.teacher || '?'})</span>
+                  </div>
+                ))}</div>
+              </div>
+            )}
+            {compareData.removed?.length > 0 && (
+              <div>
+                <p className="text-[10px] text-red-400 uppercase tracking-wider mb-2 font-semibold">Removed Blocks</p>
+                <div className="space-y-1">{compareData.removed.map((b, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs p-2 rounded-lg bg-red-500/5 border border-red-500/10">
+                    <Minus size={10} className="text-red-400 shrink-0" />
+                    <span className="text-slate-700 dark:text-dark-200">{b.day} P{b.period}</span>
+                    <span className="text-slate-500 dark:text-dark-400">·</span>
+                    <span className="text-slate-600 dark:text-dark-300">{b.subject || '?'}</span>
+                    <span className="text-slate-400 dark:text-dark-500 text-[10px]">({b.teacher || '?'})</span>
+                  </div>
+                ))}</div>
+              </div>
+            )}
+            {compareData.moved?.length > 0 && (
+              <div>
+                <p className="text-[10px] text-blue-400 uppercase tracking-wider mb-2 font-semibold">Moved Blocks</p>
+                <div className="space-y-1">{compareData.moved.map((b, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs p-2 rounded-lg bg-blue-500/5 border border-blue-500/10">
+                    <ArrowRight size={10} className="text-blue-400 shrink-0" />
+                    <span className="text-slate-500 dark:text-dark-400 line-through">{b.from?.day} P{b.from?.period}</span>
+                    <ChevronRight size={10} className="text-blue-400" />
+                    <span className="text-slate-700 dark:text-dark-200">{b.to?.day || b.day} P{b.to?.period || b.period}</span>
+                    <span className="text-slate-600 dark:text-dark-300">{b.subject || '?'}</span>
+                  </div>
+                ))}</div>
+              </div>
+            )}
+            {compareData.changed?.length > 0 && (
+              <div>
+                <p className="text-[10px] text-amber-400 uppercase tracking-wider mb-2 font-semibold">Changed Blocks</p>
+                <div className="space-y-1">{compareData.changed.map((b, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                    <Edit3 size={10} className="text-amber-400 shrink-0" />
+                    <span className="text-slate-700 dark:text-dark-200">{b.day} P{b.period}</span>
+                    <span className="text-slate-500 dark:text-dark-400">·</span>
+                    <span className="text-slate-600 dark:text-dark-300">{b.subject || '?'}</span>
+                    {b.oldTeacher && b.newTeacher && b.oldTeacher !== b.newTeacher && (
+                      <span className="text-[10px]"><span className="text-red-400 line-through">{b.oldTeacher}</span> → <span className="text-emerald-400">{b.newTeacher}</span></span>
+                    )}
+                    {b.oldRoom && b.newRoom && b.oldRoom !== b.newRoom && (
+                      <span className="text-[10px]"><span className="text-red-400 line-through">{b.oldRoom}</span> → <span className="text-emerald-400">{b.newRoom}</span></span>
+                    )}
+                  </div>
+                ))}</div>
+              </div>
+            )}
+            {(!compareData.added?.length && !compareData.removed?.length && !compareData.moved?.length && !compareData.changed?.length) && (
+              <div className="text-center py-8 text-slate-400 dark:text-dark-500">No differences found — timetable matches this snapshot.</div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* ═══════════════ CONFIRM DIALOGS ═══════════════ */}
+      <ConfirmDialog open={confirmPublish} onClose={() => setConfirmPublish(false)} onConfirm={handlePublish} loading={publishLoading}
+        title="Publish Timetable?" message="This will make the timetable active for the entire school. All previously published timetables will be archived."
+        confirmText="Publish" variant="default" />
+      <ConfirmDialog open={confirmUnpublish} onClose={() => setConfirmUnpublish(false)} onConfirm={handleUnpublish} loading={publishLoading}
+        title="Unpublish Timetable?" message="This will revert the timetable to draft status. It will no longer be active."
+        confirmText="Unpublish" variant="warning" />
+      <ConfirmDialog open={!!confirmRollback} onClose={() => setConfirmRollback(null)} onConfirm={() => confirmRollback && handleRollback(confirmRollback._id)} loading={rollbackLoading}
+        title={`Rollback to v${confirmRollback?.version || '?'}?`}
+        message={`This will restore the timetable to snapshot v${confirmRollback?.version}. A backup of the current state will be created automatically. This cannot be easily undone.`}
+        confirmText="Rollback" variant="warning" />
     </div>
   );
 }

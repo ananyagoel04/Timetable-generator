@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, RefreshCw, CheckCircle, Clock, Search, Calendar, Printer, FileText, ChevronDown, ChevronUp, Link, XCircle } from 'lucide-react';
+import { Plus, RefreshCw, CheckCircle, Clock, Search, Calendar, Printer, FileText, ChevronDown, ChevronUp, Link, XCircle, Users, AlertTriangle, BarChart3 } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import PermissionGate from '../components/ui/PermissionGate';
 import toast from 'react-hot-toast';
 
 export default function Substitutions() {
@@ -22,12 +24,15 @@ export default function Substitutions() {
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('');
+  const [confirmApprove, setConfirmApprove] = useState(null); // sub to approve
+  const [requirements, setRequirements] = useState([]);
 
   useEffect(() => {
     fetchSubs();
     api.get('/teachers').then(r => setTeachers(r.data));
     api.get('/classes').then(r => setClasses(r.data));
     api.get('/subjects').then(r => setSubjects(r.data));
+    api.get('/rules/requirements').then(r => setRequirements(r.data || [])).catch(() => {});
   }, []);
 
   useEffect(() => { if (view === 'daily') fetchDaily(); }, [dailyDate, view]);
@@ -72,6 +77,23 @@ export default function Substitutions() {
       fetchSubs();
       if (view === 'daily') fetchDaily();
     } catch (err) { toast.error(err.response?.data?.error || err.message); }
+    setConfirmApprove(null);
+  };
+
+  // Compute teacher workload
+  const getTeacherLoad = (teacherId) => {
+    return requirements.filter(r => (r.teacher?._id || r.teacher) === teacherId)
+      .reduce((sum, r) => sum + (r.periodsPerWeek || 0), 0);
+  };
+
+  // Determine fallback tier for a suggestion
+  const getTier = (t, subjectId) => {
+    if (!subjectId || !t) return { label: 'Available', tier: 3, color: 'text-slate-400' };
+    const caps = t.capabilities?.map(c => c.subject?._id || c.subject) || [];
+    const teachesSubject = requirements.some(r => (r.teacher?._id || r.teacher) === t._id && (r.subject?._id || r.subject) === subjectId);
+    if (teachesSubject) return { label: 'Same Subject', tier: 1, color: 'text-emerald-400' };
+    if (caps.includes(subjectId)) return { label: 'Can Teach', tier: 2, color: 'text-blue-400' };
+    return { label: 'Free Period', tier: 3, color: 'text-slate-400' };
   };
 
   const filteredSubs = useMemo(() => {
@@ -122,9 +144,11 @@ export default function Substitutions() {
               <Calendar size={12} />Daily Sheet
             </button>
           </div>
-          <button onClick={() => { setForm({ originalTeacher: '', substituteTeacher: '', class: '', subject: '', date: '', period: 1, notes: '' }); setAvailable([]); setModalOpen(true); }} className="btn-primary flex items-center gap-2 text-sm">
-            <Plus size={16} />New Substitution
-          </button>
+          <PermissionGate permissions={['approve_substitutions']}>
+            <button onClick={() => { setForm({ originalTeacher: '', substituteTeacher: '', class: '', subject: '', date: '', period: 1, notes: '' }); setAvailable([]); setModalOpen(true); }} className="btn-primary flex items-center gap-2 text-sm">
+              <Plus size={16} />New Substitution
+            </button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -194,12 +218,14 @@ export default function Substitutions() {
                         )}
                       </td>
                       <td className="px-5 py-4 text-right">
-                        {s.status === 'pending' && (
-                          <button onClick={() => updateStatus(s._id, 'confirmed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors">Approve</button>
-                        )}
-                        {s.status === 'confirmed' && (
-                          <button onClick={() => updateStatus(s._id, 'completed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">Complete</button>
-                        )}
+                        <PermissionGate permissions={['approve_substitutions']}>
+                          {s.status === 'pending' && (
+                            <button onClick={() => setConfirmApprove({ id: s._id, status: 'confirmed', name: `P${s.period} - ${s.substituteTeacher?.name || '?'}` })} className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors">Approve</button>
+                          )}
+                          {s.status === 'confirmed' && (
+                            <button onClick={() => updateStatus(s._id, 'completed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">Complete</button>
+                          )}
+                        </PermissionGate>
                       </td>
                     </tr>
                   ))}
@@ -250,12 +276,14 @@ export default function Substitutions() {
                     <td className="px-5 py-4 text-slate-600 dark:text-dark-300 text-sm">{s.class?.name || '—'}</td>
                     <td className="px-5 py-4"><span className={`text-[10px] px-2 py-1 rounded-full ${statusColors[s.status] || ''}`}>{s.status}</span></td>
                     <td className="px-5 py-4 text-right space-x-1">
-                      {s.status === 'pending' && (
-                        <button onClick={() => updateStatus(s._id, 'confirmed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors">Approve</button>
-                      )}
-                      {s.status === 'confirmed' && (
-                        <button onClick={() => updateStatus(s._id, 'completed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">Complete</button>
-                      )}
+                      <PermissionGate permissions={['approve_substitutions']}>
+                        {s.status === 'pending' && (
+                          <button onClick={() => setConfirmApprove({ id: s._id, status: 'confirmed', name: `P${s.period} - ${s.substituteTeacher?.name || '?'}` })} className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors">Approve</button>
+                        )}
+                        {s.status === 'confirmed' && (
+                          <button onClick={() => updateStatus(s._id, 'completed')} className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">Complete</button>
+                        )}
+                      </PermissionGate>
                     </td>
                   </tr>
                 ))}
@@ -288,9 +316,42 @@ export default function Substitutions() {
             <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Substitute Teacher *</label>
               <select value={form.substituteTeacher} onChange={e => setForm(f => ({...f, substituteTeacher: e.target.value}))} required className="select-field">
                 <option value="">Select</option>
-                {available.length > 0 ? available.map(t => <option key={t._id} value={t._id}>✓ {t.name} ({t.suitabilityScore}%)</option>) : teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                {available.length > 0 ? available.map(t => {
+                  const tier = getTier(t, form.subject);
+                  const load = getTeacherLoad(t._id);
+                  return <option key={t._id} value={t._id}>{'★'.repeat(Math.max(1, Math.ceil((t.suitabilityScore || 0) / 25)))} {t.name} ({t.suitabilityScore}%) — {tier.label} — {load}/wk</option>;
+                }) : teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
               </select>
-              {available.length > 0 && <p className="text-[10px] text-emerald-400 mt-1">{available.length} teachers free at this slot (ranked by suitability)</p>}
+              {/* Confidence & Tier Display */}
+              {available.length > 0 && (
+                <div className="mt-2 space-y-1.5">
+                  <p className="text-[10px] text-emerald-400">{available.length} teachers available (ranked by suitability)</p>
+                  {form.substituteTeacher && (() => {
+                    const sel = available.find(a => a._id === form.substituteTeacher);
+                    if (!sel) return null;
+                    const tier = getTier(sel, form.subject);
+                    const load = getTeacherLoad(sel._id);
+                    const score = sel.suitabilityScore || 0;
+                    return (
+                      <div className="bg-white/40 dark:bg-dark-800/40 rounded-lg p-2.5 space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${tier.tier === 1 ? 'bg-emerald-500/20 text-emerald-400' : tier.tier === 2 ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-500/20 text-slate-400'}`}>
+                            Tier {tier.tier}: {tier.label}
+                          </span>
+                          <span className="text-[10px] text-slate-500 dark:text-dark-400">{load} periods/wk current load</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-slate-200 dark:bg-dark-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all ${score >= 80 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
+                              style={{ width: `${score}%` }} />
+                          </div>
+                          <span className={`text-[10px] font-bold ${score >= 80 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-red-400'}`}>{score}%</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -316,6 +377,17 @@ export default function Substitutions() {
           </div>
         </form>
       </Modal>
+
+      {/* Approve ConfirmDialog */}
+      <ConfirmDialog
+        open={!!confirmApprove}
+        onClose={() => setConfirmApprove(null)}
+        onConfirm={() => confirmApprove && updateStatus(confirmApprove.id, confirmApprove.status)}
+        title="Approve Substitution?"
+        message={`Confirm approval of substitution: ${confirmApprove?.name || ''}. The substitute teacher will be notified.`}
+        confirmText="Approve"
+        variant="default"
+      />
     </div>
   );
 }

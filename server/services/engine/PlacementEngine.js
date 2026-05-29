@@ -156,6 +156,7 @@ class PlacementEngine {
         : this.classes.map(c => c._id);
 
       const block = {
+        school: this.school._id,
         timetable: this.timetableId,
         type: 'reserved',
         subject: rule.subject?._id,
@@ -184,6 +185,7 @@ class PlacementEngine {
     for (const lb of lockedBlocks) {
       // Add to placed list (with new timetable ID)
       const block = {
+        school: this.school._id,
         timetable: this.timetableId,
         type: lb.type || 'normal',
         subject: lb.subject,
@@ -265,6 +267,7 @@ class PlacementEngine {
 
           // Place the atomic combined block
           const block = {
+            school: this.school._id,
             timetable: this.timetableId,
             type: 'combined_class',
             subject: cb.subjectId,
@@ -372,6 +375,7 @@ class PlacementEngine {
           for (let i = 0; i < blocks.length; i++) {
             const block = blocks[i];
             const placedBlock = {
+              school: this.school._id,
               timetable: this.timetableId,
               type: 'split_group',
               subject: block.subjectId,
@@ -477,6 +481,7 @@ class PlacementEngine {
         if (!room) continue;
 
         this.placedBlocks.push({
+          school: this.school._id,
           timetable: this.timetableId,
           type: 'normal',
           subject: req.subjectId,
@@ -631,6 +636,7 @@ class PlacementEngine {
        candidateSlots.length === 2 ? 'double_period' : 'normal');
 
     this.placedBlocks.push({
+      school: this.school._id,
       timetable: this.timetableId,
       type: blockType,
       subject: req.subjectId,
@@ -765,6 +771,7 @@ class PlacementEngine {
     const best = candidates[0];
 
     this.placedBlocks.push({
+      school: this.school._id,
       timetable: this.timetableId,
       type: req.studentGroup ? 'split_group' : (req.blockType || 'normal'),
       subject: req.subjectId,
@@ -798,6 +805,7 @@ class PlacementEngine {
         const breaks = cp?.dayBreaks?.[day] || [];
         for (const bp of breaks) {
           this.placedBlocks.push({
+            school: this.school._id,
             timetable: this.timetableId,
             type: 'reserved',
             classes: [cls._id],

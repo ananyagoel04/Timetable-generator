@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Plus, ArrowRight, CheckCircle, AlertTriangle, Users, Loader2, BarChart3, Zap } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import PermissionGate from '../components/ui/PermissionGate';
 import toast from 'react-hot-toast';
 
 export default function TeacherReplacements() {
@@ -21,6 +23,7 @@ export default function TeacherReplacements() {
   const [preview, setPreview] = useState(null);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState(null);
+  const [confirmApply, setConfirmApply] = useState(false);
 
   useEffect(() => {
     api.get('/teachers').then(r => setTeachers(r.data || []));
@@ -114,9 +117,11 @@ export default function TeacherReplacements() {
                 ))}
                 {t.capabilities?.length > 4 && <span className="text-[9px] text-slate-400 dark:text-dark-500">+{t.capabilities.length - 4}</span>}
               </div>
-              <button onClick={() => startReplacement(t)} className="w-full btn-secondary text-xs py-1.5 flex items-center justify-center gap-1.5">
-                <Users size={13} /> Replace
-              </button>
+              <PermissionGate permissions={['manage_replacements']}>
+                <button onClick={() => startReplacement(t)} className="w-full btn-secondary text-xs py-1.5 flex items-center justify-center gap-1.5">
+                  <Users size={13} /> Replace
+                </button>
+              </PermissionGate>
             </div>
           );
         })}
@@ -221,7 +226,7 @@ export default function TeacherReplacements() {
 
             <div className="flex justify-between gap-3">
               <button onClick={() => setStep(2)} className="btn-secondary">← Back</button>
-              <button onClick={applyReplacement} disabled={applying} className="btn-primary flex items-center gap-2">
+              <button onClick={() => setConfirmApply(true)} disabled={applying} className="btn-primary flex items-center gap-2">
                 {applying ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
                 {applying ? 'Applying...' : 'Apply Replacement'}
               </button>
@@ -262,6 +267,17 @@ export default function TeacherReplacements() {
           </div>
         )}
       </Modal>
+
+      {/* Confirm Apply Dialog */}
+      <ConfirmDialog
+        open={confirmApply}
+        onClose={() => setConfirmApply(false)}
+        onConfirm={() => { setConfirmApply(false); applyReplacement(); }}
+        title="Apply Teacher Replacement?"
+        message={`This will transfer ${selected.length} assignment(s) from ${oldTeacher?.name || '?'} to ${teachers.find(t => t._id === newTeacher)?.name || '?'}. ${replType === 'permanent' ? 'This is a permanent change.' : 'This is a temporary assignment.'} ${preview?.potentialConflicts > 0 ? `⚠ ${preview.potentialConflicts} conflict(s) will be created.` : ''}`}
+        confirmText="Apply Replacement"
+        variant={preview?.potentialConflicts > 0 ? 'warning' : 'default'}
+      />
     </div>
   );
 }

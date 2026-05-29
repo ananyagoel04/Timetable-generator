@@ -9,6 +9,8 @@ const CanTeach = require('../models/CanTeach');
 const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
 const { createNotification } = require('./notificationController');
+const { withTransaction } = require('../services/transactionHelper');
+const { createAuditEntry } = require('../services/auditHelper');
 
 const getScope = async () => {
   const school = await School.findOne();
@@ -129,140 +131,114 @@ exports.applyReplacement = async (req, res, next) => {
     if (!oldTeacher || !newTeacher) return res.status(404).json({ success: false, error: 'Teacher not found' });
 
     const { schoolId, sessionId } = await getScope();
-    const results = { requirementsUpdated: 0, blocksUpdated: 0, conflictsCreated: 0, substitutionsCreated: 0 };
 
-    // 1. Update SubjectRequirement records
-    const requirements = await SubjectRequirement.find({
-      _id: { $in: assignmentIds }, teacher: oldTeacherId
-    }).populate('subject class');
+    const results = await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      const out = { requirementsUpdated: 0, blocksUpdated: 0, conflictsCreated: 0, substitutionsCreated: 0 };
 
-    for (const req_ of requirements) {
-      const before = { teacher: oldTeacherId, teacherName: oldTeacher.name };
-      req_.teacher = newTeacherId;
-      await req_.save();
-      results.requirementsUpdated++;
-    }
+      // 1. Update SubjectRequirement records
+      const requirements = await SubjectRequirement.find({
+        _id: { $in: assignmentIds }, teacher: oldTeacherId
+      }).populate('subject class').session(session);
 
-    // 2. Update LessonBlock records in active timetable
-    const tt = await GeneratedTimetable.findOne({
-      school: schoolId, status: { $in: ['draft', 'published'] }
-    }).sort({ createdAt: -1 });
+      for (const req_ of requirements) {
+        req_.teacher = newTeacherId;
+        await req_.save(opts);
+        out.requirementsUpdated++;
+      }
 
-    if (tt) {
-      const subjectIds = requirements.map(r => r.subject?._id || r.subject);
-      const classIds = requirements.map(r => r.class?._id || r.class);
+      // 2. Update LessonBlock records in active timetable
+      const tt = await GeneratedTimetable.findOne({
+        school: schoolId, status: { $in: ['draft', 'published'] }
+      }).sort({ createdAt: -1 }).session(session);
 
-      const blocks = await LessonBlock.find({
-        timetable: tt._id,
-        teacher: oldTeacherId,
-        subject: { $in: subjectIds },
-        classes: { $in: classIds },
-        type: { $nin: ['reserved', 'free'] }
+      if (tt) {
+        const subjectIds = requirements.map(r => r.subject?._id || r.subject);
+        const classIds = requirements.map(r => r.class?._id || r.class);
+
+        const blocks = await LessonBlock.find({
+          timetable: tt._id, teacher: oldTeacherId,
+          subject: { $in: subjectIds }, classes: { $in: classIds },
+          type: { $nin: ['reserved', 'free'] }
+        }).session(session);
+
+        for (const block of blocks) {
+          const before = { teacher: oldTeacherId };
+
+          // Check if new teacher is free at this slot
+          const busy = await LessonBlock.findOne({
+            timetable: tt._id, teacher: newTeacherId, day: block.day,
+            periods: { $in: block.periods }, _id: { $ne: block._id },
+            type: { $nin: ['reserved', 'free'] }
+          }).session(session);
+
+          if (busy) {
+            await ConflictLog.create([{
+              timetable: tt._id, type: 'teacher_clash', severity: 'high',
+              day: block.day, period: block.periods[0],
+              teacher: newTeacherId, classes: block.classes, subject: block.subject,
+              blocks: [block._id, busy._id],
+              title: 'Replacement Conflict',
+              message: `${newTeacher.name} is already busy on ${block.day} Period ${block.periods[0]} after replacing ${oldTeacher.name}`,
+              suggestedFix: 'Move one block to a different period',
+              groupId: `replacement_${oldTeacherId}_${newTeacherId}`,
+              autoResolvable: false
+            }], opts);
+            out.conflictsCreated++;
+          }
+
+          block.teacher = newTeacherId;
+          block.isManualOverride = true;
+          block.editHistory.push({
+            action: 'teacher_replacement', before,
+            after: { teacher: newTeacherId },
+            userId: req.user?._id,
+            reason: reason || `Replaced ${oldTeacher.name} with ${newTeacher.name}`,
+            timestamp: new Date()
+          });
+          await block.save(opts);
+          out.blocksUpdated++;
+        }
+
+        // 3. Create substitution records if temporary
+        if (type === 'temporary') {
+          for (const req_ of requirements) {
+            await Substitution.create([{
+              school: schoolId,
+              originalTeacher: oldTeacherId,
+              substituteTeacher: newTeacherId,
+              class: req_.class?._id || req_.class,
+              subject: req_.subject?._id || req_.subject,
+              date: new Date(effectiveDate || Date.now()),
+              period: 0,
+              status: 'confirmed',
+              notes: `Temporary replacement: ${oldTeacher.name} \u2192 ${newTeacher.name}`
+            }], opts);
+            out.substitutionsCreated++;
+          }
+        }
+      }
+
+      // 4. Audit log inside transaction
+      await createAuditEntry({
+        req, session,
+        action: 'teacher_replacement',
+        entityType: 'replacement',
+        entityId: oldTeacherId,
+        entityName: `${oldTeacher.name} \u2192 ${newTeacher.name}`,
+        oldValue: { teacher: oldTeacherId, teacherName: oldTeacher.name, assignments: assignmentIds.length },
+        newValue: { teacher: newTeacherId, teacherName: newTeacher.name, type, effectiveDate },
+        reason: reason || `Teacher replacement: ${type}`
       });
 
-      for (const block of blocks) {
-        const before = { teacher: oldTeacherId };
-
-        // Check if new teacher is free at this slot
-        const busy = await LessonBlock.findOne({
-          timetable: tt._id,
-          teacher: newTeacherId,
-          day: block.day,
-          periods: { $in: block.periods },
-          _id: { $ne: block._id },
-          type: { $nin: ['reserved', 'free'] }
-        });
-
-        if (busy) {
-          // Create conflict log entry
-          await ConflictLog.create({
-            timetable: tt._id,
-            type: 'teacher_clash',
-            severity: 'high',
-            day: block.day,
-            period: block.periods[0],
-            teacher: newTeacherId,
-            classes: block.classes,
-            subject: block.subject,
-            blocks: [block._id, busy._id],
-            title: `Replacement Conflict`,
-            message: `${newTeacher.name} is already busy on ${block.day} Period ${block.periods[0]} after replacing ${oldTeacher.name}`,
-            suggestedFix: `Move one block to a different period`,
-            groupId: `replacement_${oldTeacherId}_${newTeacherId}`,
-            autoResolvable: false
-          });
-          results.conflictsCreated++;
-        }
-
-        // Apply the change regardless (conflicts are tracked separately)
-        block.teacher = newTeacherId;
-        block.isManualOverride = true;
-        block.editHistory.push({
-          action: 'teacher_replacement',
-          before,
-          after: { teacher: newTeacherId },
-          userId: req.user?._id,
-          reason: reason || `Replaced ${oldTeacher.name} with ${newTeacher.name}`,
-          timestamp: new Date()
-        });
-        await block.save();
-        results.blocksUpdated++;
-      }
-
-      // 3. Create substitution records if temporary
-      if (type === 'temporary') {
-        for (const req_ of requirements) {
-          await Substitution.create({
-            school: schoolId,
-            originalTeacher: oldTeacherId,
-            substituteTeacher: newTeacherId,
-            class: req_.class?._id || req_.class,
-            subject: req_.subject?._id || req_.subject,
-            date: new Date(effectiveDate || Date.now()),
-            period: 0, // all periods
-            status: 'confirmed',
-            notes: `Temporary replacement: ${oldTeacher.name} → ${newTeacher.name}`
-          });
-          results.substitutionsCreated++;
-        }
-      }
-    }
-
-    // 4. Audit log
-    await AuditLog.create({
-      school: schoolId,
-      session: sessionId,
-      action: 'teacher_replacement',
-      entityType: 'replacement',
-      entityId: oldTeacherId,
-      entityName: `${oldTeacher.name} → ${newTeacher.name}`,
-      source: 'manual',
-      user: req.user?._id,
-      userName: req.user?.name,
-      userRole: req.user?.role,
-      oldValue: {
-        teacher: oldTeacherId,
-        teacherName: oldTeacher.name,
-        assignments: assignmentIds.length
-      },
-      newValue: {
-        teacher: newTeacherId,
-        teacherName: newTeacher.name,
-        type,
-        effectiveDate
-      },
-      reason: reason || `Teacher replacement: ${type}`,
-      ipAddress: req.ip,
-      userAgent: req.headers?.['user-agent']
+      return out;
     });
 
-    // 5. Notifications
+    // 5. Notifications (outside transaction — non-critical)
     if (createNotification) {
       await createNotification({
-        school: schoolId,
-        session: sessionId,
-        user: req.user?._id,
-        type: 'teacher_replacement',
+        school: schoolId, session: sessionId,
+        user: req.user?._id, type: 'teacher_replacement',
         title: 'Teacher Replacement Applied',
         message: `${oldTeacher.name} replaced by ${newTeacher.name} for ${results.requirementsUpdated} assignment(s). ${results.conflictsCreated} conflict(s) detected.`,
         severity: results.conflictsCreated > 0 ? 'warning' : 'info',

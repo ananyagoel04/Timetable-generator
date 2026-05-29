@@ -14,7 +14,11 @@ const auditLogSchema = new mongoose.Schema({
            'teacher_replacement', 'absence_create', 'substitution_approve', 'substitution_reject',
            'conflict_resolve', 'rule_change', 'period_change', 'subject_load_change',
            'room_change', 'rollback', 'export', 'import', 'permission_change', 'user_create',
-           'user_update', 'seed_data'],
+           'user_update', 'seed_data',
+           'manual_timetable_created', 'manual_lesson_added', 'manual_lesson_updated',
+           'manual_lesson_deleted', 'manual_lesson_moved', 'manual_lesson_swapped',
+           'manual_lesson_locked', 'manual_lesson_unlocked', 'manual_timetable_validated',
+           'manual_timetable_published'],
     required: true
   },
   entityType: {
@@ -45,6 +49,9 @@ const auditLogSchema = new mongoose.Schema({
   // Metadata
   ipAddress: { type: String },
   userAgent: { type: String },
+  requestId: { type: String, trim: true },
+  deviceType: { type: String, enum: ['desktop', 'mobile', 'tablet', 'api', 'system'], default: 'api' },
+  sourceModule: { type: String, trim: true },
   isRollbackable: { type: Boolean, default: false },
   rolledBackAt: { type: Date },
   rolledBackBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
@@ -53,5 +60,8 @@ const auditLogSchema = new mongoose.Schema({
 auditLogSchema.index({ school: 1, createdAt: -1 });
 auditLogSchema.index({ action: 1, entityType: 1 });
 auditLogSchema.index({ user: 1, createdAt: -1 });
+// Priority 4: production tracing indexes
+auditLogSchema.index({ school: 1, action: 1, createdAt: -1 }); // action-filtered queries
+auditLogSchema.index({ requestId: 1 }, { sparse: true }); // trace by request ID
 
 module.exports = mongoose.model('AuditLog', auditLogSchema);

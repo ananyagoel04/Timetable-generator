@@ -5,7 +5,7 @@ import {
   Zap, AlertTriangle, UserMinus, RefreshCw, ChevronLeft, ChevronRight,
   GraduationCap, Settings, FileText, Layers, Shield, Wrench,
   Menu, X, LogOut, ClipboardList, BarChart3, Moon, Sun, Monitor, CheckSquare,
-  Brain
+  Brain, PenTool
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSidebar } from '../../context/SidebarContext';
@@ -23,6 +23,7 @@ const navItems = [
   { divider: true, label: 'Scheduling' },
   { path: '/timetable', icon: Calendar, label: 'Timetable Editor' },
   { path: '/generator', icon: Zap, label: 'Generator', roles: MANAGER_ROLES },
+  { path: '/manual-timetable', icon: PenTool, label: 'Create Manually', roles: MANAGER_ROLES },
   { path: '/conflicts', icon: AlertTriangle, label: 'Conflict Center', roles: MANAGER_ROLES },
   { divider: true, label: 'Master Data', roles: STAFF_ROLES },
   { path: '/teachers', icon: Users, label: 'Teachers', roles: STAFF_ROLES },

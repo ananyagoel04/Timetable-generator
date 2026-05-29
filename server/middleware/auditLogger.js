@@ -72,6 +72,10 @@ const auditLogger = async (req, res, next) => {
           newValue: ['POST', 'PUT', 'PATCH'].includes(req.method) ? _sanitize(req.body) : undefined,
           ipAddress: req.ip || req.connection?.remoteAddress,
           userAgent: req.get('User-Agent'),
+          // Priority 4: production metadata
+          requestId: req.audit?.requestId || req.requestId,
+          deviceType: req.audit?.deviceType || 'api',
+          sourceModule: req.audit?.sourceModule || 'System',
         };
 
         await AuditLog.create(logEntry);

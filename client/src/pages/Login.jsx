@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 
 export default function Login() {
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('admin@dps.edu');
+  const [email, setEmail] = useState('admin@sunrise.edu.in');
   const [password, setPassword] = useState('admin123');
   const [name, setName] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -108,7 +108,7 @@ export default function Login() {
             )}
             <div>
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Email</label>
-              <input value={email} onChange={e => setEmail(e.target.value)} type="email" required className="input-field" placeholder="admin@school.edu" />
+              <input value={email} onChange={e => setEmail(e.target.value)} type="email" required className="input-field" placeholder="admin@sunrise.edu.in" />
             </div>
             <div>
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Password</label>
@@ -129,7 +129,7 @@ export default function Login() {
           </form>
 
           <p className="text-center text-xs text-slate-400 dark:text-dark-500 mt-4">
-            Default: <code className="text-primary-400">admin@dps.edu</code> / <code className="text-primary-400">admin123</code>
+            Default: <code className="text-primary-400">admin@sunrise.edu.in</code> / <code className="text-primary-400">admin123</code>
           </p>
         </div>
 

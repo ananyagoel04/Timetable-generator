@@ -376,4 +376,176 @@ router.get('/workload/pdf', authorize('export_reports'), async (req, res, next) 
   } catch (err) { next(err); }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// ROOM TIMETABLE PDF
+// ═══════════════════════════════════════════════════════════════
+router.get('/timetable/room-pdf', authorize('export_reports'), async (req, res, next) => {
+  try {
+    const { timetableId, roomId } = req.query;
+    if (!roomId) return res.status(400).json({ success: false, error: 'roomId required' });
+    const { school, session, workingDays, totalPeriods } = await _getPdfScope(req);
+    const tt = timetableId
+      ? await GeneratedTimetable.findById(timetableId)
+      : await GeneratedTimetable.findOne({ school: school._id }).sort({ createdAt: -1 });
+    if (!tt) return res.status(404).json({ success: false, error: 'No timetable found' });
+
+    const room = await Room.findById(roomId);
+    if (!room) return res.status(404).json({ success: false, error: 'Room not found' });
+    const blocks = await LessonBlock.find({ timetable: tt._id, room: roomId }).populate('subject teacher classes');
+
+    const pdf = new PDFExporter(school, session);
+    const buf = pdf.generateRoomTimetable(room, blocks, workingDays, totalPeriods);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=room_${room.name}_${Date.now()}.pdf`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CONFLICT EXCEL EXPORT
+// ═══════════════════════════════════════════════════════════════
+router.get('/conflicts/excel', authorize('export_reports'), async (req, res, next) => {
+  try {
+    const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+    const tt = await GeneratedTimetable.findOne({ school: school._id }).sort({ createdAt: -1 });
+    if (!tt) return res.status(404).json({ success: false, error: 'No timetable found' });
+
+    const ConflictLog = require('../models/ConflictLog');
+    const conflicts = await ConflictLog.find({ timetable: tt._id }).sort({ severity: -1, createdAt: -1 });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Conflicts');
+    sheet.columns = [
+      { header: 'Type', key: 'type', width: 20 },
+      { header: 'Severity', key: 'severity', width: 12 },
+      { header: 'Day', key: 'day', width: 12 },
+      { header: 'Period', key: 'period', width: 8 },
+      { header: 'Description', key: 'description', width: 40 },
+      { header: 'Resolved', key: 'resolved', width: 10 },
+      { header: 'Resolution', key: 'resolution', width: 30 },
+      { header: 'Created', key: 'created', width: 16 },
+    ];
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } };
+
+    for (const c of conflicts) {
+      sheet.addRow({
+        type: c.type || '', severity: c.severity || '',
+        day: c.day || '', period: c.period || '',
+        description: c.description || c.message || '',
+        resolved: c.isResolved ? 'Yes' : 'No',
+        resolution: c.resolution || '',
+        created: c.createdAt?.toISOString().split('T')[0] || ''
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=conflicts_${Date.now()}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) { next(err); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// AUDIT LOG EXCEL EXPORT
+// ═══════════════════════════════════════════════════════════════
+router.get('/audit/excel', authorize('view_audit', 'export_reports'), async (req, res, next) => {
+  try {
+    let AuditLogModel;
+    try { AuditLogModel = require('../models/AuditLog'); } catch(e) {
+      return res.status(404).json({ success: false, error: 'AuditLog model not available' });
+    }
+
+    const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+    const { from, to, module: mod } = req.query;
+    const filter = { school: school._id };
+    if (mod) filter.module = mod;
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) filter.createdAt.$gte = new Date(from);
+      if (to) { const d = new Date(to); d.setHours(23,59,59,999); filter.createdAt.$lte = d; }
+    }
+
+    const logs = await AuditLogModel.find(filter).sort({ createdAt: -1 }).limit(1000)
+      .populate('user', 'name email role');
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Audit Logs');
+    sheet.columns = [
+      { header: 'Date', key: 'date', width: 18 },
+      { header: 'User', key: 'user', width: 22 },
+      { header: 'Role', key: 'role', width: 16 },
+      { header: 'Action', key: 'action', width: 22 },
+      { header: 'Module', key: 'module', width: 16 },
+      { header: 'Details', key: 'details', width: 40 },
+      { header: 'IP', key: 'ip', width: 16 },
+    ];
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4338CA' } };
+
+    for (const l of logs) {
+      sheet.addRow({
+        date: l.createdAt?.toISOString().replace('T', ' ').slice(0, 19) || '',
+        user: l.user?.name || l.userName || '',
+        role: l.user?.role || l.userRole || '',
+        action: l.action || '',
+        module: l.module || '',
+        details: typeof l.details === 'string' ? l.details : JSON.stringify(l.details || '').slice(0, 200),
+        ip: l.ipAddress || l.ip || ''
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=audit_${Date.now()}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) { next(err); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ROOM UTILIZATION EXCEL EXPORT
+// ═══════════════════════════════════════════════════════════════
+router.get('/room-utilization/excel', authorize('export_reports'), async (req, res, next) => {
+  try {
+    const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+    const tt = await GeneratedTimetable.findOne({ school: school._id }).sort({ createdAt: -1 });
+    if (!tt) return res.status(404).json({ success: false, error: 'No timetable found' });
+
+    const rooms = await Room.find({ school: school._id }).sort({ name: 1 });
+    const blocks = await LessonBlock.find({ timetable: tt._id, room: { $ne: null } });
+    const workingDays = school?.settings?.workingDays || ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const periodsPerDay = school?.settings?.defaultPeriodsPerDay || 8;
+    const totalSlots = workingDays.length * periodsPerDay;
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Room Utilization');
+    sheet.columns = [
+      { header: 'Room', key: 'room', width: 20 },
+      { header: 'Type', key: 'type', width: 14 },
+      { header: 'Capacity', key: 'capacity', width: 10 },
+      { header: 'Used Slots', key: 'used', width: 12 },
+      { header: 'Total Slots', key: 'total', width: 12 },
+      { header: 'Utilization %', key: 'util', width: 14 },
+      { header: 'Status', key: 'status', width: 12 },
+    ];
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4338CA' } };
+
+    for (const r of rooms) {
+      const used = blocks.filter(b => b.room.toString() === r._id.toString()).reduce((s, b) => s + b.periods.length, 0);
+      const util = totalSlots > 0 ? Math.round((used / totalSlots) * 100) : 0;
+      sheet.addRow({
+        room: r.name, type: r.type, capacity: r.capacity,
+        used, total: totalSlots, util: `${util}%`,
+        status: util > 80 ? 'High' : util > 40 ? 'Moderate' : 'Low'
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=room_utilization_${Date.now()}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

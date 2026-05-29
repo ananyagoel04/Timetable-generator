@@ -5,13 +5,13 @@ const SchedulerEngine = require('../services/schedulerEngine');
 const TimetableEditor = require('../services/timetableEditor');
 const GenerationJob = require('../services/engine/GenerationJob');
 const School = require('../models/School');
-const AcademicSession = require('../models/AcademicSession');
+const { withTransaction } = require('../services/transactionHelper');
+const { createAuditEntry } = require('../services/auditHelper');
 
-const getScope = async () => {
-  const school = await School.findOne();
-  const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
-  return { schoolId: school?._id, sessionId: session?._id };
-};
+// NOTE: All controller functions use req.schoolId and req.sessionId injected
+// by the protect + scopeToSchool middleware chain. The old getScope() function
+// used School.findOne() without a filter and always returned the first school
+// in the database — this was a critical multi-tenant isolation bug.
 
 // Cache editor instances so undo/redo stacks persist across HTTP requests
 const _editorCache = new Map();
@@ -32,7 +32,8 @@ function _getEditor(timetableId) {
 // Background generation — returns immediately with jobId
 exports.generate = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
+    const schoolId = req.schoolId;
+    const sessionId = req.sessionId;
     if (!schoolId || !sessionId) return res.status(400).json({ success: false, error: 'School or session not configured' });
 
     const job = new GenerationJob(schoolId, sessionId);
@@ -52,7 +53,8 @@ exports.generate = async (req, res, next) => {
 // Synchronous generation — for backward compatibility / testing
 exports.generateSync = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
+    const schoolId = req.schoolId;
+    const sessionId = req.sessionId;
     if (!schoolId || !sessionId) return res.status(400).json({ success: false, error: 'School or session not configured' });
     const engine = new SchedulerEngine(schoolId, sessionId);
     const result = await engine.generate();
@@ -72,7 +74,7 @@ exports.getJobStatus = async (req, res, next) => {
 
 exports.getTimetables = async (req, res, next) => {
   try {
-    const { schoolId } = await getScope();
+    const schoolId = req.schoolId;
     const timetables = await GeneratedTimetable.find({ school: schoolId }).sort({ createdAt: -1 });
     res.json({ success: true, data: timetables });
   } catch (err) { next(err); }
@@ -161,18 +163,107 @@ exports.getConflicts = async (req, res, next) => {
 
 exports.publishTimetable = async (req, res, next) => {
   try {
+    const result = await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      const tt = await GeneratedTimetable.findById(req.params.timetableId).session(session);
+      if (!tt) return { error: 'Timetable not found', status: 404 };
+
+      // Archive all other published timetables for this school atomically
+      await GeneratedTimetable.updateMany(
+        { school: tt.school, _id: { $ne: tt._id }, status: 'published' },
+        { status: 'archived' },
+        opts
+      );
+
+      tt.status = 'published';
+      tt.publishedAt = new Date();
+      tt.publishedBy = req.user?.name || 'admin';
+      await tt.save(opts);
+
+      // Audit log inside transaction
+      await createAuditEntry({
+        req, session,
+        action: 'publish',
+        entityType: 'timetable',
+        entityId: tt._id,
+        entityName: tt.name,
+        oldValue: { status: 'draft' },
+        newValue: { status: 'published' },
+        reason: 'Timetable published'
+      });
+
+      return { data: tt };
+    });
+
+    if (result.error) return res.status(result.status).json({ success: false, error: result.error });
+    res.json({ success: true, data: result.data });
+  } catch (err) { next(err); }
+};
+
+exports.unpublishTimetable = async (req, res, next) => {
+  try {
+    const result = await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      const tt = await GeneratedTimetable.findById(req.params.timetableId).session(session);
+      if (!tt) return { error: 'Timetable not found', status: 404 };
+      if (tt.status !== 'published') return { error: `Cannot unpublish: status is ${tt.status}`, status: 400 };
+
+      const before = { status: tt.status, publishedAt: tt.publishedAt, publishedBy: tt.publishedBy };
+      tt.status = 'draft';
+      tt.publishedAt = null;
+      tt.publishedBy = null;
+      await tt.save(opts);
+
+      await createAuditEntry({
+        req, session,
+        action: 'unpublish',
+        entityType: 'timetable',
+        entityId: tt._id,
+        entityName: tt.name,
+        oldValue: before,
+        newValue: { status: 'draft' },
+        reason: 'Timetable unpublished (reverted to draft)'
+      });
+
+      return { data: tt };
+    });
+
+    if (result.error) return res.status(result.status).json({ success: false, error: result.error });
+    res.json({ success: true, data: result.data });
+  } catch (err) { next(err); }
+};
+
+exports.renameTimetable = async (req, res, next) => {
+  try {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ success: false, error: 'Name is required' });
+
     const tt = await GeneratedTimetable.findById(req.params.timetableId);
     if (!tt) return res.status(404).json({ success: false, error: 'Timetable not found' });
-    await GeneratedTimetable.updateMany({ school: tt.school, _id: { $ne: tt._id }, status: 'published' }, { status: 'archived' });
-    tt.status = 'published'; tt.publishedAt = new Date(); tt.publishedBy = 'admin';
+
+    const oldName = tt.name;
+    tt.name = name.trim();
     await tt.save();
+
+    await createAuditEntry({
+      req,
+      action: 'update',
+      entityType: 'timetable',
+      entityId: tt._id,
+      entityName: tt.name,
+      oldValue: { name: oldName },
+      newValue: { name: tt.name },
+      reason: `Timetable renamed from "${oldName}" to "${tt.name}"`
+    });
+
     res.json({ success: true, data: tt });
   } catch (err) { next(err); }
 };
 
 exports.getStats = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
+    const schoolId = req.schoolId;
+    const sessionId = req.sessionId;
     const Teacher = require('../models/Teacher');
     const Class = require('../models/Class');
     const Subject = require('../models/Subject');
@@ -338,42 +429,62 @@ exports.listSnapshots = async (req, res, next) => {
 
 exports.rollbackToSnapshot = async (req, res, next) => {
   try {
-    const snapshot = await TimetableSnapshot.findById(req.params.snapshotId);
-    if (!snapshot) return res.status(404).json({ success: false, error: 'Snapshot not found' });
+    const result = await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      const snapshot = await TimetableSnapshot.findById(req.params.snapshotId).session(session);
+      if (!snapshot) return { error: 'Snapshot not found', status: 404 };
 
-    // Create a backup snapshot of current state before rollback
-    const currentBlocks = await LessonBlock.find({ timetable: snapshot.timetable }).lean();
-    const lastSnap = await TimetableSnapshot.findOne({ timetable: snapshot.timetable })
-      .sort({ version: -1 }).select('version');
-    const backupVersion = (lastSnap?.version || 0) + 1;
-    await TimetableSnapshot.create({
-      timetable: snapshot.timetable, school: snapshot.school, session: snapshot.session,
-      version: backupVersion, label: `Pre-rollback backup (v${backupVersion})`,
-      snapshotData: currentBlocks.map(b => ({
-        type: b.type, subject: b.subject, teacher: b.teacher, room: b.room,
-        classes: b.classes, day: b.day, periods: b.periods, studentGroup: b.studentGroup,
-        isLocked: b.isLocked
-      })),
-      stats: { totalBlocks: currentBlocks.length },
-      createdBy: req.user?._id
+      // Create a backup snapshot of current state before rollback
+      const currentBlocks = await LessonBlock.find({ timetable: snapshot.timetable }).session(session).lean();
+      const lastSnap = await TimetableSnapshot.findOne({ timetable: snapshot.timetable })
+        .sort({ version: -1 }).select('version').session(session);
+      const backupVersion = (lastSnap?.version || 0) + 1;
+
+      await TimetableSnapshot.create([{
+        timetable: snapshot.timetable, school: snapshot.school, session: snapshot.session,
+        version: backupVersion, label: `Pre-rollback backup (v${backupVersion})`,
+        snapshotData: currentBlocks.map(b => ({
+          type: b.type, subject: b.subject, teacher: b.teacher, room: b.room,
+          classes: b.classes, day: b.day, periods: b.periods, studentGroup: b.studentGroup,
+          isLocked: b.isLocked
+        })),
+        stats: { totalBlocks: currentBlocks.length },
+        createdBy: req.user?._id
+      }], opts);
+
+      // Delete current blocks and restore from snapshot — atomic
+      await LessonBlock.deleteMany({ timetable: snapshot.timetable }, opts);
+      const restoredBlocks = snapshot.snapshotData.map(b => ({
+        ...b, timetable: snapshot.timetable, school: snapshot.school
+      }));
+      if (restoredBlocks.length > 0) {
+        await LessonBlock.insertMany(restoredBlocks, { ...opts, ordered: false });
+      }
+
+      // Update timetable stats
+      await GeneratedTimetable.findByIdAndUpdate(
+        snapshot.timetable,
+        { 'stats.totalBlocks': restoredBlocks.length, status: 'draft' },
+        opts
+      );
+
+      // Audit log inside transaction
+      await createAuditEntry({
+        req, session,
+        action: 'rollback',
+        entityType: 'timetable',
+        entityId: snapshot.timetable,
+        entityName: `Rollback to v${snapshot.version}`,
+        oldValue: { blocks: currentBlocks.length },
+        newValue: { blocks: restoredBlocks.length, version: snapshot.version },
+        reason: `Rolled back to snapshot v${snapshot.version}`
+      });
+
+      return { blocksRestored: restoredBlocks.length, version: snapshot.version };
     });
 
-    // Delete current blocks and restore from snapshot
-    await LessonBlock.deleteMany({ timetable: snapshot.timetable });
-    const restoredBlocks = snapshot.snapshotData.map(b => ({
-      ...b, timetable: snapshot.timetable
-    }));
-    if (restoredBlocks.length > 0) {
-      await LessonBlock.insertMany(restoredBlocks, { ordered: false });
-    }
-
-    // Update timetable stats
-    await GeneratedTimetable.findByIdAndUpdate(snapshot.timetable, {
-      'stats.totalBlocks': restoredBlocks.length,
-      status: 'draft'
-    });
-
-    res.json({ success: true, message: `Rolled back to v${snapshot.version}`, data: { blocksRestored: restoredBlocks.length } });
+    if (result.error) return res.status(result.status).json({ success: false, error: result.error });
+    res.json({ success: true, message: `Rolled back to v${result.version}`, data: { blocksRestored: result.blocksRestored } });
   } catch (err) { next(err); }
 };
 

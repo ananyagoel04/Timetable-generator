@@ -5,14 +5,18 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 
 export default function SchoolSessionSelector() {
-  const { user, switchSchool } = useAuth();
+  const { user, switchSchool, isPlatformUser } = useAuth();
   const navigate = useNavigate();
   const [sessions, setSessions] = useState({});
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(null);
 
   useEffect(() => {
-    if (!user?.schools?.length) { navigate('/dashboard'); return; }
+    if (!user?.schools?.length) {
+      if (import.meta.env.DEV) console.debug('[SchoolSelector] no schools, redirecting to /');
+      navigate('/');
+      return;
+    }
     // Load sessions for each school
     const loadSessions = async () => {
       const sessionMap = {};
@@ -33,7 +37,7 @@ export default function SchoolSessionSelector() {
     setSwitching(schoolId);
     try {
       await switchSchool(schoolId, sessionId);
-      navigate('/dashboard');
+      navigate('/');
     } catch (err) {
       console.error(err);
       setSwitching(null);

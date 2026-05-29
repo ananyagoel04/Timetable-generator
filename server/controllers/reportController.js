@@ -764,3 +764,134 @@ exports.getSubstitutionReport = async (req, res, next) => {
     });
   } catch (err) { next(err); }
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// ROOM TIMETABLE REPORT
+// ═══════════════════════════════════════════════════════════════════
+exports.getRoomTimetableReport = async (req, res, next) => {
+  try {
+    const timetableId = await autoResolveTimetableId(req);
+    if (!timetableId) return res.json({ success: true, data: { rooms: [], message: 'No timetable generated yet' } });
+
+    const { schoolId } = await getScope(req);
+    const roomId = req.query.roomId;
+
+    const roomFilter = { school: schoolId };
+    if (roomId) roomFilter._id = roomId;
+    const rooms = await Room.find(roomFilter).sort({ name: 1 });
+
+    const blocks = await LessonBlock.find({ timetable: timetableId, room: { $ne: null } })
+      .populate('subject', 'name code color')
+      .populate('teacher', 'name shortName')
+      .populate('classes', 'name grade section');
+
+    const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const report = rooms.map(r => {
+      const rBlocks = blocks.filter(b => b.room?.toString() === r._id.toString());
+      const schedule = {};
+      DAYS.forEach(day => {
+        schedule[day] = rBlocks
+          .filter(b => b.day === day)
+          .map(b => ({
+            period: b.periods[0],
+            type: b.type,
+            subject: b.subject ? { name: b.subject.name, code: b.subject.code, color: b.subject.color } : null,
+            teacher: b.teacher ? { name: b.teacher.name, shortName: b.teacher.shortName } : null,
+            classes: b.classes?.map(c => ({ name: c.name })) || [],
+            isLocked: b.isLocked
+          }))
+          .sort((a, b) => a.period - b.period);
+      });
+      const totalUsed = rBlocks.filter(b => b.type !== 'reserved').length;
+      return {
+        room: { _id: r._id, name: r.name, type: r.type, capacity: r.capacity },
+        totalPeriods: totalUsed,
+        schedule
+      };
+    });
+
+    res.json({ success: true, data: { timetableId, roomCount: rooms.length, rooms: report } });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// AUDIT REPORT
+// ═══════════════════════════════════════════════════════════════════
+exports.getAuditReport = async (req, res, next) => {
+  try {
+    const { schoolId } = await getScope(req);
+    const { module, userId, from, to, action, page = 1, limit = 50 } = req.query;
+
+    let AuditLogModel;
+    try { AuditLogModel = require('../models/AuditLog'); } catch(e) {
+      return res.json({ success: true, data: { logs: [], total: 0, message: 'AuditLog model not available' } });
+    }
+
+    const filter = {};
+    if (schoolId) filter.school = schoolId;
+    if (module) filter.module = module;
+    if (userId) filter.user = userId;
+    if (action) filter.action = { $regex: action, $options: 'i' };
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) filter.createdAt.$gte = new Date(from);
+      if (to) { const d = new Date(to); d.setHours(23,59,59,999); filter.createdAt.$lte = d; }
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const [logs, total] = await Promise.all([
+      AuditLogModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit))
+        .populate('user', 'name email role'),
+      AuditLogModel.countDocuments(filter)
+    ]);
+
+    // Action summary
+    const actionSummary = {};
+    const moduleSummary = {};
+    logs.forEach(l => {
+      actionSummary[l.action] = (actionSummary[l.action] || 0) + 1;
+      if (l.module) moduleSummary[l.module] = (moduleSummary[l.module] || 0) + 1;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        logs,
+        total,
+        page: parseInt(page),
+        totalPages: Math.ceil(total / parseInt(limit)),
+        summary: { actionSummary, moduleSummary }
+      }
+    });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// PUBLISHED TIMETABLE HISTORY
+// ═══════════════════════════════════════════════════════════════════
+exports.getPublishedHistory = async (req, res, next) => {
+  try {
+    const { schoolId, sessionId } = await getScope(req);
+
+    const filter = { school: schoolId };
+    if (sessionId) filter.session = sessionId;
+
+    const timetables = await GeneratedTimetable.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .select('name status qualityScore createdAt updatedAt publishedAt publishedBy engineVersion');
+
+    res.json({
+      success: true,
+      data: {
+        timetables,
+        summary: {
+          total: timetables.length,
+          published: timetables.filter(t => t.status === 'published').length,
+          draft: timetables.filter(t => t.status === 'draft').length,
+          archived: timetables.filter(t => t.status === 'archived').length
+        }
+      }
+    });
+  } catch (err) { next(err); }
+};

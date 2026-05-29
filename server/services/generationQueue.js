@@ -1,32 +1,49 @@
 /**
  * Generation Queue Abstraction
- * Default: in-process (setImmediate) — works without Redis
- * Optional: BullMQ when REDIS_URL is configured
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ * Production: BullMQ queue (REDIS_URL configured) — jobs processed by workers/generationWorker.js
+ * Development: In-process fallback (setImmediate) — works without Redis
  *
- * Component 6 enhancements:
- *   - onProgress callback hookup in in-process mode
- *   - Cancellation token support
- *   - Generation timeout (5 min max)
- *   - Structured log array with timestamps
- *   - Auto-purge old jobs (1 hour retention)
- *   - Enhanced BullMQ worker with stalled recovery
+ * Priority 4 changes:
+ *   - BullMQ mode only ENQUEUES jobs (worker runs in separate process)
+ *   - Added getHealth() for queue health monitoring
+ *   - Added standard JSON response format
+ *   - Preserved all in-process mode behavior for local dev
  */
 const SchedulerEngine = require('./schedulerEngine');
 
-// In-memory job store for tracking
+// In-memory job store for tracking (both modes)
 const _jobs = new Map();
 
 // Auto-purge interval (every 10 minutes)
 let _purgeInterval = null;
 
-const GENERATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const JOB_RETENTION_MS = 60 * 60 * 1000; // 1 hour
+const GENERATION_TIMEOUT_MS = parseInt(process.env.GENERATION_TIMEOUT_MS) || 5 * 60 * 1000;
+const JOB_RETENTION_MS = parseInt(process.env.JOB_RETENTION_MS) || 60 * 60 * 1000;
+const QUEUE_NAME = 'timetable-generation';
+
+// ── Parse Redis URL into IORedis-compatible connection object ──
+function parseRedisConnection(url) {
+  try {
+    const parsed = new URL(url);
+    return {
+      host: parsed.hostname || 'localhost',
+      port: parseInt(parsed.port) || 6379,
+      password: parsed.password || undefined,
+      username: parsed.username || undefined,
+      db: parsed.pathname ? parseInt(parsed.pathname.slice(1)) || 0 : 0,
+      maxRetriesPerRequest: null,
+    };
+  } catch {
+    return { host: 'localhost', port: 6379, maxRetriesPerRequest: null };
+  }
+}
 
 class GenerationQueue {
   constructor() {
     this.useRedis = !!process.env.REDIS_URL;
     this.queue = null;
-    this.worker = null;
+    this.queueEvents = null;
 
     if (this.useRedis) {
       this._initBullMQ();
@@ -35,103 +52,77 @@ class GenerationQueue {
     // Start auto-purge
     if (!_purgeInterval) {
       _purgeInterval = setInterval(() => this._purgeOldJobs(), 10 * 60 * 1000);
-      if (_purgeInterval.unref) _purgeInterval.unref(); // Don't prevent process exit
+      if (_purgeInterval.unref) _purgeInterval.unref();
     }
   }
 
+  /**
+   * Initialize BullMQ Queue (producer-only in Express process).
+   * The Worker runs in workers/generationWorker.js as a separate process.
+   */
   async _initBullMQ() {
     try {
-      const { Queue, Worker } = require('bullmq');
-      const connection = { url: process.env.REDIS_URL };
+      const { Queue, QueueEvents } = require('bullmq');
+      const connection = parseRedisConnection(process.env.REDIS_URL);
 
-      this.queue = new Queue('timetable-generation', { connection });
+      this.queue = new Queue(QUEUE_NAME, { connection });
 
-      this.worker = new Worker('timetable-generation', async (job) => {
-        const { schoolId, sessionId } = job.data;
-        const engine = new SchedulerEngine(schoolId, sessionId);
+      // QueueEvents for tracking job progress/completion/failure in Express process
+      this.queueEvents = new QueueEvents(QUEUE_NAME, { connection });
 
-        // Hook engine progress to BullMQ job progress
-        engine.onProgress = (stage, percent) => {
-          job.updateProgress({ stage, percent });
-          const jobData = _jobs.get(job.id);
-          if (jobData) {
-            jobData.progress = percent;
-            jobData.stage = stage;
-            jobData.logs.push({ ts: new Date().toISOString(), stage, percent });
-          }
-        };
-
-        // Check cancellation between stages
-        const originalProgress = engine.onProgress;
-        engine.onProgress = (stage, percent) => {
-          const jobData = _jobs.get(job.id);
-          if (jobData?.cancelled) {
-            throw new Error('Generation cancelled by user');
-          }
-          originalProgress(stage, percent);
-        };
-
-        await job.updateProgress({ stage: 'starting', percent: 0 });
-        const result = await engine.generate();
-        await job.updateProgress({ stage: 'complete', percent: 100 });
-
-        // Store result
-        _jobs.set(job.id, {
-          ..._jobs.get(job.id),
-          status: 'completed', progress: 100, stage: 'complete',
-          result: {
-            timetableId: result.timetableId,
-            status: result.status,
-            totalBlocks: result.totalBlocks,
-            unplaced: result.unplaced,
-            conflicts: result.conflicts,
-            score: result.score,
-            timeMs: result.timeMs
-          },
-          completedAt: new Date()
-        });
-
-        return result;
-      }, {
-        connection,
-        concurrency: 1,
-        limiter: { max: 1, duration: 5000 },
-        stalledInterval: 30000, // Check for stalled jobs every 30s
-        maxStalledCount: 2 // Allow 2 stalls before marking as failed
+      this.queueEvents.on('progress', ({ jobId, data }) => {
+        const existing = _jobs.get(jobId);
+        if (existing) {
+          existing.progress = data.percent || existing.progress;
+          existing.stage = data.stage || existing.stage;
+          existing.logs.push({ ts: new Date().toISOString(), stage: data.stage, percent: data.percent });
+        }
       });
 
-      this.worker.on('failed', (job, err) => {
-        const existing = _jobs.get(job.id) || {};
-        _jobs.set(job.id, {
-          ...existing,
-          status: 'failed', error: err.message,
-          failedAt: new Date()
-        });
-        existing.logs?.push({ ts: new Date().toISOString(), stage: 'failed', error: err.message });
+      this.queueEvents.on('completed', ({ jobId, returnvalue }) => {
+        const existing = _jobs.get(jobId);
+        if (existing) {
+          let result;
+          try { result = typeof returnvalue === 'string' ? JSON.parse(returnvalue) : returnvalue; } catch { result = returnvalue; }
+          existing.status = 'completed';
+          existing.progress = 100;
+          existing.stage = 'complete';
+          existing.completedAt = new Date();
+          existing.result = result;
+          existing.logs.push({ ts: new Date().toISOString(), stage: 'complete', percent: 100 });
+        }
       });
 
-      this.worker.on('progress', (job, progress) => {
-        const existing = _jobs.get(job.id) || {};
-        _jobs.set(job.id, {
-          ...existing,
-          progress: progress.percent || progress,
-          stage: progress.stage || existing.stage
-        });
+      this.queueEvents.on('failed', ({ jobId, failedReason }) => {
+        const existing = _jobs.get(jobId);
+        if (existing) {
+          existing.status = existing.cancelled ? 'cancelled' : 'failed';
+          existing.error = failedReason;
+          existing.failedAt = new Date();
+          existing.logs.push({ ts: new Date().toISOString(), stage: existing.status, error: failedReason });
+        }
       });
 
-      this.worker.on('stalled', (jobId) => {
-        console.warn(`[GenerationQueue] Job ${jobId} stalled — will retry`);
-        const existing = _jobs.get(jobId) || {};
-        existing.logs?.push({ ts: new Date().toISOString(), stage: 'stalled', message: 'Job stalled, retrying...' });
+      this.queueEvents.on('stalled', ({ jobId }) => {
+        console.warn(`[GenerationQueue] Job ${jobId} stalled — worker will retry`);
+        const existing = _jobs.get(jobId);
+        if (existing) {
+          existing.logs.push({ ts: new Date().toISOString(), stage: 'stalled', message: 'Job stalled, worker retrying...' });
+        }
       });
 
-      console.log('🔴 BullMQ generation queue initialized with Redis');
+      console.log('🔴 BullMQ generation queue initialized (producer-only, worker runs separately)');
     } catch (err) {
       console.warn('⚠️  BullMQ not available, falling back to in-process queue:', err.message);
       this.useRedis = false;
     }
   }
 
+  /**
+   * Add a new generation job.
+   * BullMQ mode: Enqueues to Redis (processed by external worker).
+   * In-process mode: Runs generation in setImmediate (dev fallback).
+   */
   async addJob(schoolId, sessionId, options = {}) {
     // Concurrent generation protection
     for (const [id, job] of _jobs.entries()) {
@@ -143,26 +134,46 @@ class GenerationQueue {
     const jobId = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     if (this.useRedis && this.queue) {
-      const bullJob = await this.queue.add('generate', { schoolId, sessionId }, {
-        jobId,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 2000 },
-        removeOnComplete: { age: 3600 },
-        removeOnFail: { age: 86400 }
-      });
-      _jobs.set(bullJob.id, {
-        jobId: bullJob.id, schoolId: schoolId.toString(),
-        status: 'queued', progress: 0, stage: 'queued',
-        startedAt: new Date(), logs: [{ ts: new Date().toISOString(), stage: 'queued', percent: 0 }],
-        cancelled: false
-      });
-      return { success: true, jobId: bullJob.id };
+      try {
+        const bullJob = await this.queue.add('generate', {
+          schoolId: schoolId.toString(),
+          sessionId: sessionId.toString(),
+          options,
+          cancelled: false
+        }, {
+          jobId,
+          attempts: 2,
+          backoff: { type: 'exponential', delay: 3000 },
+          removeOnComplete: { age: 3600, count: 50 },
+          removeOnFail: { age: 86400, count: 100 }
+        });
+
+        _jobs.set(bullJob.id, {
+          jobId: bullJob.id,
+          schoolId: schoolId.toString(),
+          status: 'running',
+          progress: 0,
+          stage: 'queued',
+          startedAt: new Date(),
+          logs: [{ ts: new Date().toISOString(), stage: 'queued', percent: 0 }],
+          cancelled: false,
+          result: null
+        });
+
+        return { success: true, jobId: bullJob.id };
+      } catch (err) {
+        console.warn('[GenerationQueue] BullMQ enqueue failed, falling back to in-process:', err.message);
+        // Fall through to in-process mode
+      }
     }
 
     // ── In-process mode with full progress/cancellation/timeout ──
     const jobData = {
-      jobId, schoolId: schoolId.toString(),
-      status: 'running', progress: 0, stage: 'starting',
+      jobId,
+      schoolId: schoolId.toString(),
+      status: 'running',
+      progress: 0,
+      stage: 'starting',
       startedAt: new Date(),
       logs: [{ ts: new Date().toISOString(), stage: 'starting', percent: 0 }],
       cancelled: false,
@@ -273,9 +284,17 @@ class GenerationQueue {
       try {
         const job = await this.queue.getJob(jobId);
         if (job) {
-          await job.remove();
+          // Signal cancellation via job data update
+          await job.updateData({ ...job.data, cancelled: true });
+          // Try to remove if still waiting
+          const state = await job.getState();
+          if (state === 'waiting' || state === 'delayed') {
+            await job.remove();
+          }
         }
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        console.warn('[GenerationQueue] BullMQ cancel error:', e.message);
+      }
     }
 
     const job = _jobs.get(jobId);
@@ -309,16 +328,46 @@ class GenerationQueue {
   }
 
   /**
+   * Queue health check — production monitoring.
+   */
+  async getHealth() {
+    const health = {
+      mode: this.useRedis ? 'bullmq' : 'in-process',
+      redisConnected: false,
+      queueName: QUEUE_NAME,
+      counts: { active: 0, waiting: 0, completed: 0, failed: 0, delayed: 0 },
+      inMemoryJobs: _jobs.size,
+      uptime: process.uptime()
+    };
+
+    if (this.useRedis && this.queue) {
+      try {
+        const counts = await this.queue.getJobCounts('active', 'waiting', 'completed', 'failed', 'delayed');
+        health.counts = counts;
+        health.redisConnected = true;
+      } catch (err) {
+        health.redisConnected = false;
+        health.redisError = err.message;
+      }
+    }
+
+    return health;
+  }
+
+  /**
    * Auto-purge completed/failed jobs older than retention period.
    */
   _purgeOldJobs() {
     const now = Date.now();
+    let purged = 0;
     for (const [id, job] of _jobs.entries()) {
       const doneAt = job.completedAt || job.failedAt;
       if (doneAt && (now - new Date(doneAt).getTime()) > JOB_RETENTION_MS) {
         _jobs.delete(id);
+        purged++;
       }
     }
+    if (purged > 0) console.log(`[GenerationQueue] Purged ${purged} old jobs`);
   }
 
   async cleanup() {
@@ -326,7 +375,7 @@ class GenerationQueue {
       clearInterval(_purgeInterval);
       _purgeInterval = null;
     }
-    if (this.worker) await this.worker.close();
+    if (this.queueEvents) await this.queueEvents.close();
     if (this.queue) await this.queue.close();
   }
 }

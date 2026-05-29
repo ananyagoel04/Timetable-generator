@@ -1,6 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider, AuthNavigateSync, useAuth } from './context/AuthContext';
 import { SidebarProvider } from './context/SidebarContext';
 import { ThemeProvider } from './context/ThemeContext';
 import Layout from './components/layout/Layout';
@@ -33,18 +33,46 @@ import ForgotPassword from './pages/ForgotPassword';
 import SchoolSessionSelector from './pages/SchoolSessionSelector';
 import AnalyticsDashboard from './pages/AnalyticsDashboard';
 import RoleManagement from './pages/RoleManagement';
+import { lazy, Suspense } from 'react';
 
+// Lazy-load the Manual Timetable Builder (heavy page)
+const ManualTimetableBuilder = lazy(() => import('./pages/ManualTimetableBuilder'));
+
+/**
+ * ProtectedRoute — Guards against unauthenticated access.
+ * Shows loader during auth hydration. Never redirects while loading.
+ */
 function ProtectedRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth();
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-dark-950">
-      <div className="text-center">
-        <div className="w-12 h-12 mx-auto mb-4 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-slate-500 dark:text-dark-400 text-sm">Loading...</p>
+  const { isAuthenticated, authLoading, authReady, selectedSchool, isPlatformUser } = useAuth();
+
+  // Still loading — show spinner
+  if (authLoading || !authReady) {
+    if (import.meta.env.DEV) console.debug('[RouteGuard] waiting:authLoading');
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-dark-950">
+        <div className="text-center">
+          <div className="w-12 h-12 mx-auto mb-4 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-500 dark:text-dark-400 text-sm">Loading...</p>
+        </div>
       </div>
-    </div>
-  );
-  return isAuthenticated ? children : <Navigate to="/login" replace />;
+    );
+  }
+
+  // Not authenticated — redirect to login
+  if (!isAuthenticated) {
+    if (import.meta.env.DEV) console.debug('[RouteGuard] denied:notAuthenticated');
+    return <Navigate to="/login" replace />;
+  }
+
+  // Authenticated but no school selected — redirect to school selector
+  // (platform users also need to select a school for context)
+  if (!selectedSchool) {
+    if (import.meta.env.DEV) console.debug('[RouteGuard] redirect:noSchool');
+    return <Navigate to="/select-school" replace />;
+  }
+
+  if (import.meta.env.DEV) console.debug('[RouteGuard] allowed');
+  return children;
 }
 
 /** Wraps a page with a permission gate — shows AccessDenied if user lacks permission */
@@ -56,14 +84,26 @@ function Gated({ permissions, platformOnly, children }) {
   );
 }
 
-function AppRoutes() {
-  const { isAuthenticated, loading } = useAuth();
-
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-dark-950">
-      <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+/** Lazy loading fallback */
+function LazyFallback() {
+  return (
+    <div className="flex items-center justify-center py-16">
+      <div className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
     </div>
   );
+}
+
+function AppRoutes() {
+  const { isAuthenticated, authLoading, authReady } = useAuth();
+
+  // Global loading while auth hydrates
+  if (authLoading || !authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-dark-950">
+        <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <Routes>
@@ -97,6 +137,22 @@ function AppRoutes() {
         <Route path="/generator" element={<Gated permissions={['generate_timetable']}><Generator /></Gated>} />
         <Route path="/conflicts" element={<Gated permissions={['edit_timetable']}><ConflictCenter /></Gated>} />
 
+        {/* Manual Timetable Builder */}
+        <Route path="/manual-timetable" element={
+          <Gated permissions={['generate_timetable']}>
+            <Suspense fallback={<LazyFallback />}>
+              <ManualTimetableBuilder />
+            </Suspense>
+          </Gated>
+        } />
+        <Route path="/manual-timetable/:timetableId/edit" element={
+          <Gated permissions={['edit_timetable']}>
+            <Suspense fallback={<LazyFallback />}>
+              <ManualTimetableBuilder />
+            </Suspense>
+          </Gated>
+        } />
+
         {/* Operations — manager and above */}
         <Route path="/absences" element={<Gated permissions={['manage_absences']}><Absences /></Gated>} />
         <Route path="/substitutions" element={<Gated permissions={['approve_substitutions']}><Substitutions /></Gated>} />
@@ -123,6 +179,7 @@ export default function App() {
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
+          <AuthNavigateSync />
           <SidebarProvider>
             <Toaster position="top-right" toastOptions={{
               className: '!bg-white dark:bg-dark-800 !text-slate-900 dark:text-dark-50 !border !border-slate-300/50 dark:border-dark-700/50',
@@ -135,4 +192,3 @@ export default function App() {
     </BrowserRouter>
   );
 }
-

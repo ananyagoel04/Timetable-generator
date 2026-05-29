@@ -4,6 +4,8 @@ const Room = require('../models/Room');
 const Class = require('../models/Class');
 const CanTeach = require('../models/CanTeach');
 const AuditLog = require('../models/AuditLog');
+const { withTransaction } = require('./transactionHelper');
+const { createAuditEntry } = require('./auditHelper');
 
 class TimetableEditor {
   constructor(timetableId) {
@@ -16,7 +18,7 @@ class TimetableEditor {
   // ═══════════════════════════════════════════════════════════════════
   // MOVE BLOCK
   // ═══════════════════════════════════════════════════════════════════
-  async moveBlock(blockId, newDay, newPeriod, userId, reason) {
+  async moveBlock(blockId, newDay, newPeriod, userId, reason, req) {
     const block = await LessonBlock.findById(blockId).populate('subject teacher room classes');
     if (!block) return { success: false, error: 'Block not found' };
     if (block.isLocked) return { success: false, error: 'Block is locked' };
@@ -38,7 +40,6 @@ class TimetableEditor {
       if (!roomFree) warnings.push('Room conflict — will need reassignment');
     }
 
-    // Consecutive group warning
     if (block.consecutiveGroupId) {
       warnings.push('This block is part of a consecutive sequence. Moving it will break continuity.');
     }
@@ -46,17 +47,29 @@ class TimetableEditor {
     // Save undo state
     this._pushUndo('move', blockId, before);
 
-    // Apply move
-    block.day = newDay;
-    block.periods = [newPeriod];
-    block.isManualOverride = true;
-    block.editHistory.push({
-      action: 'move', before, after: { day: newDay, periods: [newPeriod] },
-      userId, reason, timestamp: new Date()
-    });
-    await block.save();
+    // Apply move inside transaction
+    const result = await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      block.day = newDay;
+      block.periods = [newPeriod];
+      block.isManualOverride = true;
+      block.editHistory.push({
+        action: 'move', before, after: { day: newDay, periods: [newPeriod] },
+        userId, reason, timestamp: new Date()
+      });
+      await block.save(opts);
 
-    await this._createAuditLog(block, 'move', before, { day: newDay, periods: [newPeriod] }, userId);
+      await createAuditEntry({
+        req, session,
+        action: 'move',
+        entityType: 'lesson_block',
+        entityId: block._id,
+        oldValue: before,
+        newValue: { day: newDay, periods: [newPeriod] },
+        reason
+      });
+      return true;
+    });
 
     const populated = await LessonBlock.findById(blockId).populate('subject teacher room classes');
     return { success: true, block: populated, warnings, canUndo: true };
@@ -65,7 +78,7 @@ class TimetableEditor {
   // ═══════════════════════════════════════════════════════════════════
   // SWAP BLOCKS
   // ═══════════════════════════════════════════════════════════════════
-  async swapBlocks(blockAId, blockBId, userId, reason) {
+  async swapBlocks(blockAId, blockBId, userId, reason, req) {
     const [blockA, blockB] = await Promise.all([
       LessonBlock.findById(blockAId).populate('subject teacher room classes'),
       LessonBlock.findById(blockBId).populate('subject teacher room classes')
@@ -102,18 +115,26 @@ class TimetableEditor {
     // Save undo state
     this._pushUndo('swap', blockAId, beforeA, blockBId, beforeB);
 
-    // Swap
-    blockA.day = beforeB.day; blockA.periods = beforeB.periods;
-    blockB.day = beforeA.day; blockB.periods = beforeA.periods;
-    blockA.isManualOverride = true; blockB.isManualOverride = true;
-    blockA.editHistory.push({ action: 'swap', before: beforeA, after: { day: blockA.day, periods: blockA.periods }, userId, reason });
-    blockB.editHistory.push({ action: 'swap', before: beforeB, after: { day: blockB.day, periods: blockB.periods }, userId, reason });
-    await blockA.save(); await blockB.save();
+    // Apply swap inside transaction
+    await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      blockA.day = beforeB.day; blockA.periods = beforeB.periods;
+      blockB.day = beforeA.day; blockB.periods = beforeA.periods;
+      blockA.isManualOverride = true; blockB.isManualOverride = true;
+      blockA.editHistory.push({ action: 'swap', before: beforeA, after: { day: blockA.day, periods: blockA.periods }, userId, reason });
+      blockB.editHistory.push({ action: 'swap', before: beforeB, after: { day: blockB.day, periods: blockB.periods }, userId, reason });
+      await blockA.save(opts);
+      await blockB.save(opts);
 
-    await AuditLog.create({
-      action: 'manual_edit', entityType: 'LessonBlock', entityId: blockAId,
-      details: { type: 'swap', blockA: { before: beforeA, after: { day: blockA.day, periods: blockA.periods } }, blockB: { before: beforeB, after: { day: blockB.day, periods: blockB.periods } } },
-      performedBy: userId
+      await createAuditEntry({
+        req, session,
+        action: 'swap',
+        entityType: 'lesson_block',
+        entityId: blockAId,
+        oldValue: { blockA: beforeA, blockB: beforeB },
+        newValue: { blockA: { day: blockA.day, periods: blockA.periods }, blockB: { day: blockB.day, periods: blockB.periods } },
+        reason
+      });
     });
 
     return { success: true, blockA, blockB, warnings, canUndo: true };
@@ -205,25 +226,49 @@ class TimetableEditor {
   // ═══════════════════════════════════════════════════════════════════
   // LOCK / UNLOCK
   // ═══════════════════════════════════════════════════════════════════
-  async lockBlock(blockId, userId) {
+  async lockBlock(blockId, userId, req) {
     const block = await LessonBlock.findById(blockId);
     if (!block) return { success: false, error: 'Block not found' };
-    block.isLocked = true;
-    block.editHistory.push({ action: 'lock', before: { isLocked: false }, after: { isLocked: true }, userId, timestamp: new Date() });
-    await block.save();
 
-    await this._createAuditLog(block, 'lock', { isLocked: false }, { isLocked: true }, userId);
+    await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      block.isLocked = true;
+      block.editHistory.push({ action: 'lock', before: { isLocked: false }, after: { isLocked: true }, userId, timestamp: new Date() });
+      await block.save(opts);
+
+      await createAuditEntry({
+        req, session,
+        action: 'lock',
+        entityType: 'lesson_block',
+        entityId: block._id,
+        oldValue: { isLocked: false },
+        newValue: { isLocked: true }
+      });
+    });
+
     return { success: true, block };
   }
 
-  async unlockBlock(blockId, userId) {
+  async unlockBlock(blockId, userId, req) {
     const block = await LessonBlock.findById(blockId);
     if (!block) return { success: false, error: 'Block not found' };
-    block.isLocked = false;
-    block.editHistory.push({ action: 'unlock', before: { isLocked: true }, after: { isLocked: false }, userId, timestamp: new Date() });
-    await block.save();
 
-    await this._createAuditLog(block, 'unlock', { isLocked: true }, { isLocked: false }, userId);
+    await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      block.isLocked = false;
+      block.editHistory.push({ action: 'unlock', before: { isLocked: true }, after: { isLocked: false }, userId, timestamp: new Date() });
+      await block.save(opts);
+
+      await createAuditEntry({
+        req, session,
+        action: 'unlock',
+        entityType: 'lesson_block',
+        entityId: block._id,
+        oldValue: { isLocked: true },
+        newValue: { isLocked: false }
+      });
+    });
+
     return { success: true, block };
   }
 

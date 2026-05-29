@@ -7,6 +7,8 @@ const GeneratedTimetable = require('../models/GeneratedTimetable');
 const AuditLog = require('../models/AuditLog');
 const Absence = require('../models/Absence');
 const { createNotification } = require('./notificationController');
+const { withTransaction } = require('../services/transactionHelper');
+const { createAuditEntry } = require('../services/auditHelper');
 
 exports.getSubstitutions = async (req, res, next) => {
   try {
@@ -130,34 +132,38 @@ exports.getDailySheet = async (req, res, next) => {
  */
 exports.approveSubstitution = async (req, res, next) => {
   try {
-    const sub = await Substitution.findById(req.params.id)
-      .populate('originalTeacher substituteTeacher class subject');
-    if (!sub) return res.status(404).json({ success: false, error: 'Not found' });
-    if (sub.status !== 'pending') return res.status(400).json({ success: false, error: `Cannot approve: status is ${sub.status}` });
+    const result = await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      const sub = await Substitution.findById(req.params.id)
+        .populate('originalTeacher substituteTeacher class subject')
+        .session(session);
+      if (!sub) return { error: 'Not found', status: 404 };
+      if (sub.status !== 'pending') return { error: `Cannot approve: status is ${sub.status}`, status: 400 };
 
-    const before = { status: sub.status };
-    sub.status = 'confirmed';
-    await sub.save();
+      const before = { status: sub.status };
+      sub.status = 'confirmed';
+      await sub.save(opts);
 
-    // Audit log
-    await AuditLog.create({
-      school: sub.school,
-      action: 'substitution_approve',
-      entityType: 'substitution',
-      entityId: sub._id,
-      entityName: `${sub.originalTeacher?.name} → ${sub.substituteTeacher?.name}`,
-      source: 'manual',
-      user: req.user?._id,
-      userName: req.user?.name,
-      userRole: req.user?.role,
-      oldValue: before,
-      newValue: { status: 'confirmed' },
-      ipAddress: req.ip,
-      userAgent: req.headers?.['user-agent']
+      // Audit log inside transaction
+      await createAuditEntry({
+        req, session,
+        action: 'substitution_approve',
+        entityType: 'substitution',
+        entityId: sub._id,
+        entityName: `${sub.originalTeacher?.name} \u2192 ${sub.substituteTeacher?.name}`,
+        oldValue: before,
+        newValue: { status: 'confirmed' },
+        reason: 'Substitution approved'
+      });
+
+      return { data: sub };
     });
 
-    // Notification
+    if (result.error) return res.status(result.status).json({ success: false, error: result.error });
+
+    // Notification (outside transaction — non-critical)
     if (createNotification) {
+      const sub = result.data;
       await createNotification({
         school: sub.school,
         user: req.user?._id,
@@ -169,7 +175,7 @@ exports.approveSubstitution = async (req, res, next) => {
       });
     }
 
-    res.json({ success: true, data: sub });
+    res.json({ success: true, data: result.data });
   } catch (err) { next(err); }
 };
 

@@ -23,4 +23,9 @@ router.get('/conflict-report', authorize('view_timetable', 'export_reports'), rc
 router.get('/quality-report', authorize('view_timetable', 'export_reports'), rc.getQualityReport);
 router.get('/subject-completion', authorize('view_timetable', 'export_reports'), rc.getSubjectCompletionReport);
 
+// ─── New Priority 6 endpoints ───
+router.get('/room-timetable', authorize('view_timetable', 'export_reports'), rc.getRoomTimetableReport);
+router.get('/audit-report', authorize('view_audit', 'export_reports'), rc.getAuditReport);
+router.get('/published-history', authorize('view_timetable', 'export_reports'), rc.getPublishedHistory);
+
 module.exports = router;
