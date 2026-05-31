@@ -80,25 +80,63 @@ exports.platformOnly = (req, res, next) => {
 
 /**
  * Inject school/session scope from headers or user context.
- * This runs on ALL protected routes and sets req.schoolId / req.sessionId.
+ * 
+ * RBAC Rules:
+ * - School users: ALWAYS use their own school from user.activeSchool. 
+ *   Ignores any X-Selected-School-Id header (prevents cross-school spoofing).
+ *   X-Session-Id header is accepted for session switching within own school.
+ * - Platform users: Must use X-Selected-School-Id header for school-scoped APIs.
+ *   Falls back to X-School-Id for backward compat.
+ *   X-Session-Id header accepted for session context.
  */
 exports.scopeToSchool = (req, res, next) => {
-  const schoolId = req.headers['x-school-id'] || req.user?.activeSchool;
-  const sessionId = req.headers['x-session-id'] || req.user?.activeSession;
-  if (schoolId) req.schoolId = schoolId.toString();
-  if (sessionId) req.sessionId = sessionId.toString();
+  if (isPlatformRole(req.user?.role)) {
+    // Platform user: use selected school header
+    const selectedSchool = req.headers['x-selected-school-id'] || req.headers['x-school-id'];
+    if (selectedSchool) req.schoolId = selectedSchool.toString();
+    // Session from header
+    const sessionId = req.headers['x-session-id'];
+    if (sessionId) req.sessionId = sessionId.toString();
+  } else {
+    // School user: ALWAYS use own school — never trust headers for school
+    const schoolId = req.user?.activeSchool;
+    if (schoolId) req.schoolId = schoolId.toString();
+    // Session: allow header override within own school, fallback to activeSession
+    const sessionId = req.headers['x-session-id'] || req.user?.activeSession;
+    if (sessionId) req.sessionId = sessionId.toString();
+  }
   next();
 };
 
 /**
  * Require school context - rejects requests without school scope.
  * Use on data routes that MUST have a school context.
- * Platform users are exempt (they can query cross-school).
+ * Platform users are NOT exempt — they must select a school first.
  */
 exports.requireSchoolContext = (req, res, next) => {
-  if (isPlatformRole(req.user?.role)) return next();
   if (!req.schoolId) {
+    if (isPlatformRole(req.user?.role)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'SELECT_SCHOOL_REQUIRED',
+        message: 'Please select a school before accessing school-scoped data.'
+      });
+    }
     return res.status(400).json({ success: false, error: 'School context required. Set X-School-Id header or select an active school.' });
+  }
+  next();
+};
+
+/**
+ * Require session context - rejects requests without session scope.
+ * Use on routes that need a specific session (reports, generator, requirements).
+ */
+exports.requireSessionContext = (req, res, next) => {
+  if (!req.sessionId) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Session context required. Select an active session.'
+    });
   }
   next();
 };

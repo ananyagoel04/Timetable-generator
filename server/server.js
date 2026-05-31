@@ -121,6 +121,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/diagnostics', require('./routes/diagnostics'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/requirements', require('./routes/requirements'));
+app.use('/api/sessions', require('./routes/sessions'));
 app.use('/api/can-teach', require('./routes/canTeach'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/platform', require('./routes/platform'));

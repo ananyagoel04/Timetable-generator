@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 /**
  * CanTeach — structured teacher eligibility mappings
  * Defines which teachers can teach which subjects for which classes/streams/sections
- * with priority and role configurations.
+ * with priority, eligibility type, and workload configurations.
  */
 const canTeachSchema = new mongoose.Schema({
   school: { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
@@ -16,16 +16,21 @@ const canTeachSchema = new mongoose.Schema({
   eligibleStreams: [{ type: String, trim: true }],   // e.g., ['Science', 'Commerce']
   eligibleSections: [{ type: String, trim: true }],  // e.g., ['A', 'B']
 
-  // Role & priority
-  role: {
+  // Eligibility type (renamed from 'role')
+  eligibilityType: {
     type: String,
-    enum: ['primary', 'secondary', 'fallback'],
+    enum: ['primary', 'secondary', 'substitute_only', 'replacement_only'],
     default: 'primary'
   },
   priority: { type: Number, default: 5, min: 1, max: 10 }, // 10 = highest priority
 
-  // Optional per-subject constraints
+  // Per-mapping workload constraints
   maxPeriodsForThis: { type: Number, min: 0 },     // Max periods/week for THIS subject
+  maxPeriodsPerWeek: { type: Number, min: 0 },      // Overall weekly cap via this mapping
+  maxPeriodsPerDay: { type: Number, min: 0 },        // Daily cap via this mapping
+  maxContinuousPeriods: { type: Number, min: 0 },    // Max continuous periods
+
+  // Timing preferences
   preferMorning: { type: Boolean, default: false },
   preferAfternoon: { type: Boolean, default: false },
 
@@ -36,28 +41,41 @@ const canTeachSchema = new mongoose.Schema({
 
 // Compound index for efficient lookups
 canTeachSchema.index({ school: 1, session: 1, teacher: 1, subject: 1 });
-canTeachSchema.index({ school: 1, session: 1, subject: 1, role: 1 });
+canTeachSchema.index({ school: 1, session: 1, subject: 1, eligibilityType: 1 });
 canTeachSchema.index({ school: 1, session: 1, teacher: 1, isActive: 1 });
 
 /**
  * Static: find eligible teachers for a given subject + class + stream
- * Returns sorted by role priority then by priority field
+ * Returns sorted by eligibilityType priority then by priority field
+ * @param {Object} opts
+ * @param {string} opts.mode - 'normal' | 'substitution' | 'replacement' — filters eligibilityType
  */
 canTeachSchema.statics.findEligible = async function(opts) {
-  const { schoolId, sessionId, subjectId, classId, stream, section, activeOnly = true } = opts;
+  const { schoolId, sessionId, subjectId, classId, stream, section, activeOnly = true, mode = 'normal' } = opts;
   
   const filter = { school: schoolId, session: sessionId, subject: subjectId };
   if (activeOnly) filter.isActive = true;
 
+  // Filter by mode → allowed eligibility types
+  if (mode === 'normal') {
+    filter.eligibilityType = { $in: ['primary', 'secondary'] };
+  } else if (mode === 'substitution') {
+    filter.eligibilityType = { $in: ['primary', 'secondary', 'substitute_only'] };
+  } else if (mode === 'replacement') {
+    filter.eligibilityType = { $in: ['primary', 'secondary', 'substitute_only', 'replacement_only'] };
+  }
+  // mode === 'all' → no eligibilityType filter
+
   let mappings = await this.find(filter)
-    .populate('teacher', 'name shortName department status maxPeriodsPerDay maxPeriodsPerWeek capabilities unavailableSlots')
+    .populate('teacher', 'name shortName department status maxPeriodsPerDay maxPeriodsPerWeek maxContinuousPeriods capabilities unavailableSlots')
     .populate('subject', 'name code type')
-    .sort({ role: 1, priority: -1 });
+    .populate('eligibleClasses', 'name grade section stream')
+    .sort({ eligibilityType: 1, priority: -1 });
 
   // Filter by class eligibility
   if (classId) {
     mappings = mappings.filter(m => 
-      m.eligibleClasses.length === 0 || m.eligibleClasses.some(c => c.toString() === classId.toString())
+      m.eligibleClasses.length === 0 || m.eligibleClasses.some(c => (c._id || c).toString() === classId.toString())
     );
   }
 
@@ -78,11 +96,11 @@ canTeachSchema.statics.findEligible = async function(opts) {
   // Filter out inactive teachers
   mappings = mappings.filter(m => m.teacher && m.teacher.status === 'active');
 
-  // Sort: primary > secondary > fallback, then by priority desc
-  const roleOrder = { primary: 0, secondary: 1, fallback: 2 };
+  // Sort: primary > secondary > substitute_only > replacement_only, then by priority desc
+  const typeOrder = { primary: 0, secondary: 1, substitute_only: 2, replacement_only: 3 };
   mappings.sort((a, b) => {
-    const roleCompare = (roleOrder[a.role] || 2) - (roleOrder[b.role] || 2);
-    if (roleCompare !== 0) return roleCompare;
+    const typeCompare = (typeOrder[a.eligibilityType] || 3) - (typeOrder[b.eligibilityType] || 3);
+    if (typeCompare !== 0) return typeCompare;
     return (b.priority || 5) - (a.priority || 5);
   });
 
@@ -96,9 +114,10 @@ canTeachSchema.statics.findEligible = async function(opts) {
 canTeachSchema.statics.scoreForReplacement = function(mapping, currentDayLoad, maxPerDay) {
   let score = 0;
   
-  // Role weight
-  if (mapping.role === 'primary') score += 30;
-  else if (mapping.role === 'secondary') score += 20;
+  // EligibilityType weight
+  if (mapping.eligibilityType === 'primary') score += 30;
+  else if (mapping.eligibilityType === 'secondary') score += 20;
+  else if (mapping.eligibilityType === 'substitute_only') score += 15;
   else score += 10;
 
   // Priority weight (1-10 scaled to 0-20)

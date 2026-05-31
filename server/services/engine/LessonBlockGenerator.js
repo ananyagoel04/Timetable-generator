@@ -41,11 +41,21 @@ class LessonBlockGenerator {
    * @param {Array} options.existingBlocks - Blocks already placed by prior stages
    * @param {Object} options.classPeriodMap - Per-class period structure data
    * @param {Array} options.teachers - All teacher documents
+   * @param {Array} options.canTeachMappings - CanTeach eligibility documents
    */
   generate(requirements, options = {}) {
-    const { coveredSet = new Set(), existingBlocks = [], classPeriodMap = {} } = options;
+    const { coveredSet = new Set(), existingBlocks = [], classPeriodMap = {}, canTeachMappings = [] } = options;
     const rawBlocks = [];
     const warnings = [];
+    const eligibilityErrors = [];
+
+    // Build fast eligibility lookup: key = "teacherId_subjectId" → [{ eligibleClasses, eligibilityType, ... }]
+    const eligibilityMap = {};
+    for (const ct of canTeachMappings) {
+      const key = `${(ct.teacher?._id || ct.teacher).toString()}_${(ct.subject?._id || ct.subject).toString()}`;
+      if (!eligibilityMap[key]) eligibilityMap[key] = [];
+      eligibilityMap[key].push(ct);
+    }
 
     for (const req of requirements) {
       if (!req.class || !req.subject || !req.teacher) continue;
@@ -63,6 +73,43 @@ class LessonBlockGenerator {
         warnings.push(`Skipped ${req.subject?.name} for ${req.class?.name}: periodsPerWeek=${req.periodsPerWeek}`);
         continue;
       }
+
+      // ── ELIGIBILITY CHECK: Verify teacher is eligible via CanTeach ──
+      const eligKey = `${teacherId}_${subjectId}`;
+      const teacherMappings = eligibilityMap[eligKey] || [];
+      if (teacherMappings.length > 0) {
+        // Check if eligible for THIS specific class
+        const isEligible = teacherMappings.some(ct => {
+          // Only normal-schedule eligible types (not substitute_only / replacement_only)
+          if (ct.eligibilityType === 'substitute_only' || ct.eligibilityType === 'replacement_only') return false;
+          // Empty eligibleClasses means eligible for ALL classes
+          if (!ct.eligibleClasses || ct.eligibleClasses.length === 0) return true;
+          return ct.eligibleClasses.some(c => (c._id || c).toString() === classId);
+        });
+
+        if (!isEligible) {
+          eligibilityErrors.push({
+            type: 'NO_ELIGIBLE_TEACHER',
+            message: `${req.teacher.name} is not eligible to teach ${req.subject.name} for ${req.class.name}`,
+            details: {
+              teacher: { id: req.teacher._id, name: req.teacher.name },
+              subject: { id: req.subject._id, name: req.subject.name },
+              class: { id: req.class._id, name: req.class.name },
+              reason: 'Teacher exists in CanTeach but not eligible for this class (class-restricted or substitute_only/replacement_only)'
+            },
+            suggestions: [
+              { action: 'update_eligibility', description: `Add ${req.class.name} to ${req.teacher.name}'s eligible classes for ${req.subject.name}`, confidence: 90 },
+              { action: 'change_teacher', description: `Assign a different teacher for ${req.subject.name} in ${req.class.name}`, confidence: 70 }
+            ],
+            classId: req.class._id,
+            subjectId: req.subject._id,
+            teacherId: req.teacher._id
+          });
+          continue; // Skip this requirement — ineligible
+        }
+      }
+      // NOTE: If no CanTeach mapping exists at all, we still allow the assignment
+      // (backward compatibility — school hasn't set up CanTeach yet)
 
       // Count periods already placed for this class+subject (from reserved rules, class-teacher first period, etc.)
       const alreadyPlaced = this._countAlreadyPlaced(existingBlocks, classId, subjectId, teacherId, classPeriodMap);
@@ -136,7 +183,7 @@ class LessonBlockGenerator {
       }
     }
 
-    return { blocks: rawBlocks, warnings };
+    return { blocks: rawBlocks, warnings, eligibilityErrors };
   }
 
   /**

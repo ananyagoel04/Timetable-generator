@@ -10,7 +10,7 @@ const Subject = require('../models/Subject');
 const Room = require('../models/Room');
 
 const getScope = async (req) => {
-  const schoolId = req?.schoolId || (await School.findOne())?._id;
+  const schoolId = req.schoolId;
   const sessionId = req?.sessionId || (await AcademicSession.findOne({ school: schoolId, isCurrent: true }))?._id;
   return { schoolId, sessionId };
 };
@@ -891,6 +891,174 @@ exports.getPublishedHistory = async (req, res, next) => {
           draft: timetables.filter(t => t.status === 'draft').length,
           archived: timetables.filter(t => t.status === 'archived').length
         }
+      }
+    });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// READINESS AUDIT — Pre-generation checklist
+// ═══════════════════════════════════════════════════════════════════
+exports.getReadinessAudit = async (req, res, next) => {
+  try {
+    const { schoolId, sessionId } = await getScope(req);
+    const PeriodStructure = require('../models/PeriodStructure');
+    const SubjectRequirement = require('../models/SubjectRequirement');
+    const CanTeach = require('../models/CanTeach');
+
+    const [classes, teachers, subjects, requirements, periodStructure, canTeachRecords, school] = await Promise.all([
+      Class.find({ school: schoolId, session: sessionId, isActive: true }),
+      Teacher.find({ school: schoolId, session: sessionId, status: 'active' }),
+      Subject.find({ school: schoolId, session: sessionId, isActive: true }),
+      SubjectRequirement.find({ school: schoolId, session: sessionId }).populate('class subject'),
+      PeriodStructure.findOne({ school: schoolId, status: 'active' }),
+      CanTeach.find({ school: schoolId, isActive: true }).populate('teacher subject'),
+      School.findById(schoolId)
+    ]);
+
+    const workingDays = school?.settings?.workingDays || [];
+    const checks = [];
+
+    // 1. Classes
+    checks.push({
+      key: 'classes',
+      label: 'Active Classes',
+      pass: classes.length > 0,
+      count: classes.length,
+      detail: classes.length > 0
+        ? `${classes.length} active classes found`
+        : 'No active classes. Go to Classes page to add them.',
+      link: '/classes'
+    });
+
+    // 2. Teachers
+    checks.push({
+      key: 'teachers',
+      label: 'Active Teachers',
+      pass: teachers.length > 0,
+      count: teachers.length,
+      detail: teachers.length > 0
+        ? `${teachers.length} active teachers found`
+        : 'No active teachers. Go to Teachers page to add them.',
+      link: '/teachers'
+    });
+
+    // 3. Subjects
+    checks.push({
+      key: 'subjects',
+      label: 'Active Subjects',
+      pass: subjects.length > 0,
+      count: subjects.length,
+      detail: subjects.length > 0
+        ? `${subjects.length} active subjects found`
+        : 'No active subjects. Go to Subjects page to add them.',
+      link: '/subjects'
+    });
+
+    // 4. Subject Requirements
+    checks.push({
+      key: 'requirements',
+      label: 'Subject Requirements',
+      pass: requirements.length > 0,
+      count: requirements.length,
+      detail: requirements.length > 0
+        ? `${requirements.length} subject-class requirements defined`
+        : 'No subject requirements. Define how many periods each subject needs per class.',
+      link: '/requirements'
+    });
+
+    // 5. Period Structure
+    const schedulableCount = periodStructure
+      ? periodStructure.timeslots.filter(ts => ts.isSchedulable).length
+      : 0;
+    checks.push({
+      key: 'periods',
+      label: 'Period Structure',
+      pass: !!periodStructure && schedulableCount > 0,
+      count: schedulableCount,
+      detail: periodStructure
+        ? `${schedulableCount} schedulable periods, ${periodStructure.timeslots.length - schedulableCount} breaks`
+        : 'No active period structure. Set up your daily period/break schedule.',
+      link: '/periods'
+    });
+
+    // 6. CanTeach Mappings
+    const requiredSubjectIds = [...new Set(requirements.map(r => (r.subject?._id || r.subject)?.toString()).filter(Boolean))];
+    const coveredSubjectIds = [...new Set(canTeachRecords.map(ct => (ct.subject?._id || ct.subject)?.toString()).filter(Boolean))];
+    const uncoveredSubjects = requiredSubjectIds.filter(id => !coveredSubjectIds.includes(id));
+    const uncoveredSubjectNames = uncoveredSubjects.map(id => {
+      const sub = subjects.find(s => s._id.toString() === id);
+      return sub?.name || id;
+    });
+    const coveragePercent = requiredSubjectIds.length > 0
+      ? Math.round(((requiredSubjectIds.length - uncoveredSubjects.length) / requiredSubjectIds.length) * 100)
+      : 0;
+
+    checks.push({
+      key: 'canTeach',
+      label: 'Teacher-Subject Mappings',
+      pass: uncoveredSubjects.length === 0 && canTeachRecords.length > 0,
+      count: canTeachRecords.length,
+      detail: canTeachRecords.length === 0
+        ? 'No teacher-subject mappings. Assign which teachers can teach which subjects.'
+        : uncoveredSubjects.length > 0
+          ? `${coveragePercent}% coverage. Unmapped subjects: ${uncoveredSubjectNames.join(', ')}`
+          : `${canTeachRecords.length} mappings covering all ${requiredSubjectIds.length} required subjects`,
+      link: '/can-teach',
+      warnings: uncoveredSubjectNames.length > 0
+        ? uncoveredSubjectNames.map(n => `No teacher assigned for: ${n}`)
+        : []
+    });
+
+    // 7. Working Days
+    checks.push({
+      key: 'workingDays',
+      label: 'Working Days Config',
+      pass: workingDays.length > 0,
+      count: workingDays.length,
+      detail: workingDays.length > 0
+        ? `${workingDays.length} working days: ${workingDays.join(', ')}`
+        : 'Working days not configured. Set them in School Settings.',
+      link: '/settings'
+    });
+
+    // 8. Teacher Max Periods
+    const teachersWithoutMax = teachers.filter(t => !t.maxPeriodsPerWeek || t.maxPeriodsPerWeek <= 0);
+    const teachersWithoutDayMax = teachers.filter(t => !t.maxPeriodsPerDay || t.maxPeriodsPerDay <= 0);
+    checks.push({
+      key: 'teacherLimits',
+      label: 'Teacher Period Limits',
+      pass: teachersWithoutMax.length === 0,
+      count: teachers.length - teachersWithoutMax.length,
+      detail: teachersWithoutMax.length === 0
+        ? `All ${teachers.length} teachers have weekly limits set`
+        : `${teachersWithoutMax.length} teachers missing weekly max periods`,
+      link: '/teachers',
+      warnings: [
+        ...(teachersWithoutMax.length > 0
+          ? [`${teachersWithoutMax.length} teachers without maxPeriodsPerWeek: ${teachersWithoutMax.slice(0, 5).map(t => t.name).join(', ')}${teachersWithoutMax.length > 5 ? '...' : ''}`]
+          : []),
+        ...(teachersWithoutDayMax.length > 0
+          ? [`${teachersWithoutDayMax.length} teachers without maxPeriodsPerDay`]
+          : [])
+      ]
+    });
+
+    // Overall
+    const passCount = checks.filter(c => c.pass).length;
+    const overallReady = checks.every(c => c.pass);
+    const score = Math.round((passCount / checks.length) * 100);
+    const allWarnings = checks.flatMap(c => c.warnings || []);
+
+    res.json({
+      success: true,
+      data: {
+        overallReady,
+        score,
+        passCount,
+        totalChecks: checks.length,
+        checks,
+        warnings: allWarnings
       }
     });
   } catch (err) { next(err); }

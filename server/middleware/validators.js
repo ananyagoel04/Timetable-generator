@@ -166,7 +166,7 @@ const validateCreateRequirement = [
 const validateCreateCanTeach = [
   mongoIdBody('teacher', 'Teacher'),
   mongoIdBody('subject', 'Subject'),
-  body('role').optional().isIn(['primary', 'secondary', 'substitute']).withMessage('Invalid role'),
+  body('eligibilityType').optional().isIn(['primary', 'secondary', 'substitute_only', 'replacement_only']).withMessage('Invalid eligibility type'),
   body('priority').optional().isInt({ min: 1, max: 10 }).withMessage('Priority must be 1-10'),
   handleValidation
 ];

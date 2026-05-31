@@ -8,7 +8,8 @@ import {
   Lock, Unlock, ArrowLeftRight, Edit3, Save, X, AlertTriangle,
   GripVertical, Loader2, PenSquare, Users, BookOpen, DoorOpen,
   RefreshCw, Move, Download, Printer, Eye, EyeOff, Undo2, Redo2, History,
-  Upload, RotateCcw, Camera, GitCompare, ChevronRight, Pencil, Check, Archive, Plus, Minus, ArrowRight
+  Upload, RotateCcw, Camera, GitCompare, ChevronRight, Pencil, Check, Archive, Plus, Minus, ArrowRight,
+  Trash2, KeyRound
 } from 'lucide-react';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import api from '../api/axios';
@@ -127,7 +128,7 @@ function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHi
 // ═══════════════════════════════════════════════════════════════════
 // DROPPABLE CELL (dnd-kit)
 // ═══════════════════════════════════════════════════════════════════
-function DroppableCell({ id, day, period, editMode, children }) {
+function DroppableCell({ id, day, period, editMode, onAddLesson, children }) {
   const { setNodeRef, isOver } = useDroppable({
     id: id,
     data: { day, period },
@@ -136,7 +137,9 @@ function DroppableCell({ id, day, period, editMode, children }) {
   return (
     <td className="px-1.5 py-1" ref={setNodeRef}>
       {children || (
-        <div className={`p-2 rounded-lg text-center min-h-[56px] flex items-center justify-center transition-all duration-200
+        <div
+          onClick={() => editMode && onAddLesson && onAddLesson(day, period)}
+          className={`p-2 rounded-lg text-center min-h-[56px] flex items-center justify-center transition-all duration-200
           ${isOver
             ? 'border-2 border-dashed border-primary-400 bg-primary-50 dark:bg-primary-900/20 scale-[1.03] shadow-md'
             : 'border border-dashed border-slate-200/80 dark:border-dark-700/40 bg-slate-50/30 dark:bg-dark-800/20'}
@@ -191,6 +194,7 @@ export default function TimetableView() {
   const [blocks, setBlocks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [maxPeriod, setMaxPeriod] = useState(8);
+  const [periodInfo, setPeriodInfo] = useState({});
 
   // Editor state
   const [editMode, setEditMode] = useState(false);
@@ -227,6 +231,18 @@ export default function TimetableView() {
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [dragValidation, setDragValidation] = useState(null); // { valid, conflicts, warnings }
+
+  // Add lesson to empty cell
+  const [showAddLessonModal, setShowAddLessonModal] = useState(false);
+  const [addLessonSlot, setAddLessonSlot] = useState({ day: '', period: 1 });
+  const [addLessonForm, setAddLessonForm] = useState({ subjectId: '', teacherId: '', roomId: '' });
+  const [addLessonSaving, setAddLessonSaving] = useState(false);
+
+  // Delete timetable
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const fetchUndoStatus = useCallback(async () => {
     if (!selectedTT) return;
@@ -387,8 +403,12 @@ export default function TimetableView() {
       const r = await api.get(endpoint);
       const b = r.data?.data || r.data || [];
       setBlocks(b);
+      // Capture periodInfo from API if available
+      if (r.data?.periodInfo) setPeriodInfo(r.data.periodInfo);
       const mp = b.reduce((max, bl) => Math.max(max, ...(bl.periods || [])), 0);
-      setMaxPeriod(Math.max(mp, 8));
+      // If periodInfo is available, use the max slot number from it
+      const piMax = r.data?.periodInfo ? Math.max(...Object.keys(r.data.periodInfo).map(Number), 0) : 0;
+      setMaxPeriod(Math.max(mp, piMax, 8));
     } catch { /* silent */ }
     finally { setLoading(false); }
   };
@@ -404,10 +424,23 @@ export default function TimetableView() {
     [blocks]
   );
 
-  const isBreak = useCallback((period) =>
-    !!blocks.find(b => b.type === 'reserved' && b.periods?.includes(period) && !b.subject),
-    [blocks]
-  );
+  const isBreak = useCallback((period) => {
+    // Use periodInfo as source of truth if available
+    const pi = periodInfo[period];
+    if (pi) return pi.type === 'break' || pi.type === 'lunch' || pi.type === 'recess' || !pi.isSchedulable;
+    // Fallback: check reserved blocks
+    return !!blocks.find(b => b.type === 'reserved' && b.periods?.includes(period) && !b.subject);
+  }, [blocks, periodInfo]);
+
+  const getBreakName = useCallback((period) => {
+    const pi = periodInfo[period];
+    return pi?.name || 'Break';
+  }, [periodInfo]);
+
+  const getPeriodLabel = useCallback((period) => {
+    const pi = periodInfo[period];
+    return pi?.name || `P${period}`;
+  }, [periodInfo]);
 
   // Build a set of periods that are "continuation" of a multi-period block
   // (i.e., not the first period of an atomic block) to skip rendering them
@@ -571,6 +604,65 @@ export default function TimetableView() {
 
   const cancelSwaps = () => { setPendingSwaps([]); toast('Swaps cancelled'); };
 
+  // ═══ ADD LESSON TO EMPTY CELL ═══
+  const openAddLessonModal = (day, period) => {
+    setAddLessonSlot({ day, period });
+    setAddLessonForm({ subjectId: '', teacherId: '', roomId: '' });
+    setShowAddLessonModal(true);
+  };
+
+  const addNewLesson = async () => {
+    if (!selectedTT || !addLessonForm.subjectId) return;
+    setAddLessonSaving(true);
+    try {
+      const classId = viewMode === 'class' ? selectedClass : undefined;
+      const payload = {
+        classId,
+        subjectId: addLessonForm.subjectId,
+        teacherId: addLessonForm.teacherId,
+        roomId: addLessonForm.roomId,
+        day: addLessonSlot.day,
+        period: addLessonSlot.period,
+        duration: 1,
+        type: 'normal'
+      };
+      // Use manual lesson API if timetable supports it, otherwise use block update
+      await api.post(`/timetable/manual/${selectedTT}/lesson`, payload);
+      toast.success('Lesson added!');
+      setShowAddLessonModal(false);
+      loadBlocks();
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to add lesson');
+    } finally { setAddLessonSaving(false); }
+  };
+
+  // ═══ DELETE TIMETABLE ═══
+  const handleDeleteTimetable = async () => {
+    if (!selectedTT || !deletePassword) return;
+    setDeleteLoading(true);
+    setDeleteError('');
+    try {
+      const tt = timetables.find(t => t._id === selectedTT);
+      const payload = { password: deletePassword };
+      if (tt?.status === 'published') payload.confirmPublishedDelete = true;
+
+      await api.delete(`/timetable/${selectedTT}`, { data: payload });
+      toast.success('Timetable deleted successfully');
+      setShowDeleteConfirm(false);
+      setDeletePassword('');
+
+      // Remove from list and select next
+      const remaining = timetables.filter(t => t._id !== selectedTT);
+      setTimetables(remaining);
+      setSelectedTT(remaining.length > 0 ? remaining[0]._id : '');
+      setBlocks([]);
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Delete failed';
+      setDeleteError(msg);
+      toast.error(msg);
+    } finally { setDeleteLoading(false); }
+  };
+
   // Count stats
   const totalBlocks = blocks.filter(b => b.type !== 'reserved').length;
   const lockedBlocks = blocks.filter(b => b.isLocked).length;
@@ -679,6 +771,12 @@ export default function TimetableView() {
                 <Upload size={11} />Publish
               </button>
             )}
+          </PermissionGate>
+          <PermissionGate permissions={['edit_timetable']}>
+            <button onClick={() => { setShowDeleteConfirm(true); setDeletePassword(''); setDeleteError(''); }}
+              className="text-[10px] px-2.5 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors flex items-center gap-1 border border-red-500/20">
+              <Trash2 size={11} />Delete
+            </button>
           </PermissionGate>
         </div>
       )}
@@ -790,10 +888,10 @@ export default function TimetableView() {
                     return (
                       <tr key={p} className={`border-t border-slate-200/60 dark:border-dark-700/40 ${brk ? 'bg-amber-50/50 dark:bg-amber-500/5' : ''}`}>
                         <td className="px-2 py-1 text-xs font-medium text-slate-600 dark:text-dark-300 sticky left-0 bg-white dark:bg-dark-900 z-10 whitespace-nowrap">
-                          {brk ? '☕' : `P${p}`}
+                          {brk ? '☕' : getPeriodLabel(p)}
                         </td>
                         {visibleDays.map(d => {
-                          if (brk) return <td key={d} className="px-1.5 py-1 text-center text-[10px] text-amber-400/60">Break</td>;
+                          if (brk) return <td key={d} className="px-1.5 py-1 text-center text-[10px] text-amber-400/60">{getBreakName(p)}</td>;
 
                           // Skip if this period is a continuation of a multi-period block
                           if (skipPeriods[`${d}_${p}`]) return null;
@@ -806,7 +904,7 @@ export default function TimetableView() {
                           const isHighlighted = highlightTeacher && block?.teacher?._id === highlightTeacher;
 
                           return (
-                            <DroppableCell key={d} id={cellId} day={d} period={p} editMode={editMode}>
+                            <DroppableCell key={d} id={cellId} day={d} period={p} editMode={editMode} onAddLesson={openAddLessonModal}>
                               {isSplitGroup ? (
                                 /* Split group: stacked mini-cards */
                                 <div className="space-y-1">
@@ -1142,6 +1240,122 @@ export default function TimetableView() {
         title={`Rollback to v${confirmRollback?.version || '?'}?`}
         message={`This will restore the timetable to snapshot v${confirmRollback?.version}. A backup of the current state will be created automatically. This cannot be easily undone.`}
         confirmText="Rollback" variant="warning" />
+
+      {/* ═══════════════ ADD LESSON MODAL ═══════════════ */}
+      {showAddLessonModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" onClick={() => setShowAddLessonModal(false)}>
+          <div className="bg-white dark:bg-dark-900 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-200 dark:border-dark-700 flex items-center justify-between">
+              <h3 className="font-bold text-slate-900 dark:text-dark-50 flex items-center gap-2">
+                <Plus size={16} className="text-emerald-500" /> Add Lesson
+              </h3>
+              <button onClick={() => setShowAddLessonModal(false)} className="p-1 text-slate-400 hover:text-slate-600"><X size={16} /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-xs text-slate-500 dark:text-dark-400">
+                {addLessonSlot.day} — Period {addLessonSlot.period}
+              </p>
+
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1 block">Subject *</label>
+                <select value={addLessonForm.subjectId} onChange={e => setAddLessonForm(f => ({ ...f, subjectId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm">
+                  <option value="">Select subject...</option>
+                  {subjects.map(s => <option key={s._id} value={s._id}>{s.name} ({s.code})</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1 block">Teacher</label>
+                <select value={addLessonForm.teacherId} onChange={e => setAddLessonForm(f => ({ ...f, teacherId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm">
+                  <option value="">Select teacher...</option>
+                  {teachers.map(t => <option key={t._id} value={t._id}>{t.shortName || t.name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1 block">Room</label>
+                <select value={addLessonForm.roomId} onChange={e => setAddLessonForm(f => ({ ...f, roomId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm">
+                  <option value="">Select room...</option>
+                  {rooms.map(r => <option key={r._id} value={r._id}>{r.name} ({r.roomNumber || r.type})</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="p-4 border-t border-slate-200 dark:border-dark-700 flex gap-2">
+              <button onClick={() => setShowAddLessonModal(false)}
+                className="flex-1 py-2 rounded-xl text-sm font-medium bg-slate-100 dark:bg-dark-800 text-slate-600 dark:text-dark-300">
+                Cancel
+              </button>
+              <button onClick={addNewLesson} disabled={!addLessonForm.subjectId || addLessonSaving}
+                className="flex-1 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg disabled:opacity-50 flex items-center justify-center gap-1.5">
+                {addLessonSaving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ DELETE TIMETABLE DIALOG ═══════════════ */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="bg-white dark:bg-dark-900 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-slate-200 dark:border-dark-700">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-red-500/15 flex items-center justify-center">
+                  <Trash2 size={20} className="text-red-500" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-red-600 dark:text-red-400 text-lg">Delete Timetable</h3>
+                  <p className="text-xs text-slate-500 dark:text-dark-400">This action cannot be undone.</p>
+                </div>
+              </div>
+              <div className="mt-3 p-3 rounded-xl bg-red-50/50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-800/30 text-xs text-red-600 dark:text-red-400 space-y-1">
+                <p className="font-semibold">The following data will be permanently deleted:</p>
+                <ul className="list-disc list-inside space-y-0.5 ml-1">
+                  <li>All lesson blocks ({blocks.length})</li>
+                  <li>All snapshots and conflict logs</li>
+                  <li>The timetable configuration</li>
+                </ul>
+                {ttMeta?.status === 'published' && (
+                  <p className="mt-2 font-bold text-red-700 dark:text-red-300">⚠ This timetable is currently PUBLISHED.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-dark-200 mb-1.5 flex items-center gap-1.5">
+                  <KeyRound size={12} /> Enter your password to confirm
+                </label>
+                <input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)}
+                  placeholder="Enter password..."
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm focus:ring-2 focus:ring-red-500/30 focus:border-red-500" />
+              </div>
+
+              {deleteError && (
+                <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-900/15 border border-red-200 dark:border-red-800 text-xs text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                  <AlertTriangle size={12} /> {deleteError}
+                </div>
+              )}
+            </div>
+
+            <div className="p-5 border-t border-slate-200 dark:border-dark-700 flex gap-3">
+              <button onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-slate-100 dark:bg-dark-800 text-slate-600 dark:text-dark-300 hover:bg-slate-200 dark:hover:bg-dark-700 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleDeleteTimetable} disabled={!deletePassword || deleteLoading}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-1.5">
+                {deleteLoading ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

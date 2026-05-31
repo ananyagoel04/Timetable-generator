@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api, { setLogoutCallback } from '../api/axios';
+import api, { setLogoutCallback, setIsPlatformUser } from '../api/axios';
 
 const AuthContext = createContext(null);
 
@@ -26,6 +26,8 @@ export function AuthProvider({ children }) {
   // ── School/session context ──
   const [selectedSchool, setSelectedSchoolState] = useState(() => localStorage.getItem('tc_school') || null);
   const [selectedSession, setSelectedSessionState] = useState(() => localStorage.getItem('tc_session') || null);
+  const [sessionName, setSessionName] = useState(() => localStorage.getItem('tc_session_name') || '');
+  const [selectedSchoolName, setSelectedSchoolNameState] = useState(() => localStorage.getItem('tc_school_name') || '');
   const [schoolContextReady, setSchoolContextReady] = useState(false);
 
   // ── Guards ──
@@ -38,23 +40,58 @@ export function AuthProvider({ children }) {
   }, []);
 
   // ── Setters that also persist to localStorage ──
-  const setSelectedSchool = useCallback((schoolId) => {
+  const setSelectedSchool = useCallback((schoolId, schoolName) => {
     if (schoolId) {
       localStorage.setItem('tc_school', schoolId);
+      if (schoolName) {
+        localStorage.setItem('tc_school_name', schoolName);
+        setSelectedSchoolNameState(schoolName);
+      }
     } else {
       localStorage.removeItem('tc_school');
+      localStorage.removeItem('tc_school_name');
+      setSelectedSchoolNameState('');
     }
     setSelectedSchoolState(schoolId);
   }, []);
 
-  const setSelectedSession = useCallback((sessionId) => {
+  const setSelectedSession = useCallback((sessionId, name) => {
     if (sessionId) {
       localStorage.setItem('tc_session', sessionId);
+      if (name) {
+        localStorage.setItem('tc_session_name', name);
+        setSessionName(name);
+      }
     } else {
       localStorage.removeItem('tc_session');
+      localStorage.removeItem('tc_session_name');
+      setSessionName('');
     }
     setSelectedSessionState(sessionId);
   }, []);
+
+  /**
+   * Clear school context — used when switching schools.
+   * Clears both school and session to prevent stale data.
+   */
+  const clearSchoolContext = useCallback(() => {
+    localStorage.removeItem('tc_school');
+    localStorage.removeItem('tc_school_name');
+    localStorage.removeItem('tc_session');
+    localStorage.removeItem('tc_session_name');
+    setSelectedSchoolState(null);
+    setSelectedSchoolNameState('');
+    setSelectedSessionState(null);
+    setSessionName('');
+  }, []);
+
+  /**
+   * Switch session within current school.
+   */
+  const switchSession = useCallback((sessionId, name) => {
+    setSelectedSession(sessionId, name);
+    if (import.meta.env.DEV) console.debug('[Auth] session:switched', { sessionId, name });
+  }, [setSelectedSession]);
 
   // ── Hydration: runs ONCE on mount ──
   useEffect(() => {
@@ -84,6 +121,10 @@ export function AuthProvider({ children }) {
 
       setUser(userData);
       setIsAuthenticated(true);
+
+      // Update platform user flag for axios
+      const isPlatform = ['platform_owner', 'platform_support', 'platform_developer', 'platform_qa', 'deployment_manager'].includes(userData.role);
+      setIsPlatformUser(isPlatform);
 
       // Restore school/session from localStorage if valid
       if (storedSchool) {
@@ -125,14 +166,29 @@ export function AuthProvider({ children }) {
     setPermissionsReady(true);
     setAuthReady(true);
 
+    // Update platform flag
+    const isPlatform = ['platform_owner', 'platform_support', 'platform_developer', 'platform_qa', 'deployment_manager'].includes(userData.role);
+    setIsPlatformUser(isPlatform);
+
     // If user has an activeSchool, restore it
     if (userData.activeSchool) {
       const schoolId = typeof userData.activeSchool === 'object' ? userData.activeSchool._id : userData.activeSchool;
-      setSelectedSchool(schoolId);
+      const schoolName = typeof userData.activeSchool === 'object' ? userData.activeSchool.name : null;
+      setSelectedSchool(schoolId, schoolName);
     }
     if (userData.activeSession) {
-      const sessionId = typeof userData.activeSession === 'object' ? userData.activeSession._id : userData.activeSession;
-      setSelectedSession(sessionId);
+      const sessionObj = userData.activeSession;
+      const sessionId = typeof sessionObj === 'object' ? sessionObj._id : sessionObj;
+      const sName = typeof sessionObj === 'object' ? sessionObj.name : null;
+      setSelectedSession(sessionId, sName);
+      // Fetch session name if not populated
+      if (!sName && sessionId) {
+        api.get('/setup/sessions').then(r => {
+          const sessions = r.data?.data || r.data || [];
+          const active = sessions.find(s => s._id === sessionId || s.isCurrent);
+          if (active?.name) { setSessionName(active.name); localStorage.setItem('tc_session_name', active.name); }
+        }).catch(() => {});
+      }
     }
 
     setSchoolContextReady(true);
@@ -170,10 +226,14 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('tc_token');
     localStorage.removeItem('tc_school');
     localStorage.removeItem('tc_session');
+    localStorage.removeItem('tc_session_name');
+    localStorage.removeItem('tc_school_name');
     setUser(null);
     setIsAuthenticated(false);
     setSelectedSchoolState(null);
     setSelectedSessionState(null);
+    setSelectedSchoolNameState('');
+    setSessionName('');
     setPermissionsReady(true);
     setSchoolContextReady(false);
     hydrationDone.current = false;
@@ -190,16 +250,25 @@ export function AuthProvider({ children }) {
   }, [logout]);
 
   // ── Switch School ──
-  const switchSchool = async (schoolId, sessionId) => {
-    await api.put('/auth/switch-school', { schoolId, sessionId });
-    setSelectedSchool(schoolId);
+  const switchSchool = async (schoolId, sessionId, schoolName) => {
+    try {
+      await api.put('/auth/switch-school', { schoolId, sessionId });
+    } catch (e) {
+      // Even if server call fails, update local context for platform users
+      if (import.meta.env.DEV) console.debug('[Auth] switchSchool:server-call-failed', e.message);
+    }
+    setSelectedSchool(schoolId, schoolName);
     if (sessionId) setSelectedSession(sessionId);
+    else {
+      // Clear session when switching schools — force re-select
+      setSelectedSession(null);
+    }
     setUser(u => ({
       ...u,
       activeSchool: schoolId,
       activeSession: sessionId || u?.activeSession
     }));
-    if (import.meta.env.DEV) console.debug('[Auth] schoolContext:switched', { schoolId, sessionId });
+    if (import.meta.env.DEV) console.debug('[Auth] schoolContext:switched', { schoolId, sessionId, schoolName });
   };
 
   // ── Permission helpers ──
@@ -235,6 +304,8 @@ export function AuthProvider({ children }) {
       permissionsReady,
       selectedSchool,
       selectedSession,
+      sessionName,
+      selectedSchoolName,
       schoolContextReady,
       // Legacy compat
       loading: authLoading,
@@ -243,6 +314,8 @@ export function AuthProvider({ children }) {
       register,
       logout,
       switchSchool,
+      switchSession,
+      clearSchoolContext,
       setSelectedSchool,
       setSelectedSession,
       setNavigateRef,

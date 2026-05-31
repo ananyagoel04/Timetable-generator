@@ -22,6 +22,105 @@ const STEPS = [
   { id: 'generate', label: 'Generate', icon: Zap, desc: 'Auto-schedule everything', required: true },
 ];
 
+function SessionManager({ school }) {
+  const [sessions, setSessions] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [copyFrom, setCopyFrom] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { if (school) loadSessions(); }, [school]);
+  const loadSessions = () => api.get('/setup/sessions').then(r => setSessions(r.data?.data || r.data || [])).catch(() => {});
+
+  const activate = async (id) => {
+    setBusy(true);
+    try { await api.put(`/setup/sessions/${id}/activate`); toast.success('Session activated'); loadSessions(); }
+    catch (e) { toast.error(e.response?.data?.error || e.message); }
+    setBusy(false);
+  };
+  const archive = async (id) => {
+    setBusy(true);
+    try { await api.put(`/setup/sessions/${id}/archive`); toast.success('Session archived'); loadSessions(); }
+    catch (e) { toast.error(e.response?.data?.error || e.message); }
+    setBusy(false);
+  };
+  const create = async (e) => {
+    e.preventDefault(); setBusy(true);
+    try {
+      const r = await api.post('/setup/sessions', { name: newName || 'New Session', status: 'active' });
+      const newId = r.data?.data?._id || r.data?._id;
+      if (copyFrom && newId) {
+        await api.post(`/setup/sessions/${newId}/copy-setup`, { sourceSessionId: copyFrom });
+        toast.success('Session created & setup copied');
+      } else { toast.success('Session created'); }
+      setShowCreate(false); setNewName(''); setCopyFrom(''); loadSessions();
+    } catch (e) { toast.error(e.response?.data?.error || e.message); }
+    setBusy(false);
+  };
+
+  if (!school) return (
+    <div className="flex items-center gap-4 p-5 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30">
+      <AlertTriangle size={24} className="text-amber-500 shrink-0" />
+      <p className="text-sm text-amber-800 dark:text-amber-300">Complete School Info first to create your academic session.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div><h2 className="text-lg font-bold text-slate-900 dark:text-dark-50 mb-1">Academic Sessions</h2>
+          <p className="text-sm text-slate-500 dark:text-dark-400">{sessions.length} session{sessions.length !== 1 ? 's' : ''}</p></div>
+        <button onClick={() => setShowCreate(!showCreate)} className="btn-secondary flex items-center gap-1.5 text-sm">
+          <Plus size={14} /> New Session
+        </button>
+      </div>
+      {showCreate && (
+        <form onSubmit={create} className="p-4 rounded-xl bg-primary-50/50 dark:bg-primary-900/10 border border-primary-200/50 dark:border-primary-800/30 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Session Name</label>
+              <input value={newName} onChange={e => setNewName(e.target.value)} className="input-field" placeholder="e.g., 2026-27" required /></div>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Copy Setup From</label>
+              <select value={copyFrom} onChange={e => setCopyFrom(e.target.value)} className="select-field">
+                <option value="">Start fresh</option>
+                {sessions.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
+              </select></div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary text-sm">Cancel</button>
+            <button type="submit" disabled={busy} className="btn-primary text-sm">{busy ? 'Creating...' : 'Create'}</button>
+          </div>
+        </form>
+      )}
+      <div className="space-y-2">
+        {sessions.map(s => (
+          <div key={s._id} className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${s.isCurrent ? 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/30' : 'bg-white/40 dark:bg-dark-800/40 border-slate-200/50 dark:border-dark-700/50'}`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${s.isCurrent ? 'bg-emerald-100 dark:bg-emerald-500/20' : 'bg-slate-100 dark:bg-dark-700'}`}>
+              <CalendarDays size={18} className={s.isCurrent ? 'text-emerald-500' : 'text-slate-400 dark:text-dark-500'} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-900 dark:text-dark-50 truncate">{s.name}</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${s.isCurrent ? 'bg-emerald-500/20 text-emerald-500' : s.status === 'archived' ? 'bg-slate-200 dark:bg-dark-700 text-slate-400 dark:text-dark-500' : 'bg-amber-500/20 text-amber-500'}`}>
+                  {s.isCurrent ? '● Active' : s.status || 'draft'}
+                </span>
+                {s.startDate && <span className="text-[10px] text-slate-400 dark:text-dark-500">{new Date(s.startDate).toLocaleDateString()} — {s.endDate ? new Date(s.endDate).toLocaleDateString() : '...'}</span>}
+              </div>
+            </div>
+            <div className="flex gap-1.5 shrink-0">
+              {!s.isCurrent && <button onClick={() => activate(s._id)} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30 transition-all font-medium">Activate</button>}
+              {s.isCurrent && <button onClick={() => archive(s._id)} disabled={busy} className="text-xs px-3 py-1.5 rounded-lg bg-slate-200/60 dark:bg-dark-700 text-slate-500 dark:text-dark-400 hover:bg-slate-300/60 dark:hover:bg-dark-600 transition-all font-medium">Archive</button>}
+            </div>
+          </div>
+        ))}
+        {sessions.length === 0 && (
+          <div className="text-center py-8"><CalendarDays size={36} className="mx-auto text-slate-300 dark:text-dark-600 mb-2" />
+            <p className="text-sm text-slate-500 dark:text-dark-400">No sessions found. Create your first session above.</p></div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function SetupWizard() {
   const [step, setStep] = useState(0);
   const [school, setSchool] = useState(null);
@@ -336,30 +435,7 @@ export default function SetupWizard() {
 
           {/* Step 1: Academic Session */}
           {step === 1 && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-dark-50 mb-1">Academic Session</h2>
-                <p className="text-sm text-slate-500 dark:text-dark-400">The academic session is automatically created with your school. You can manage sessions from the school settings.</p>
-              </div>
-              {school ? (
-                <div className="flex items-center gap-4 p-5 rounded-xl bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-800/30">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center">
-                    <CheckCircle size={24} className="text-emerald-500" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Active session configured</p>
-                    <p className="text-xs text-emerald-600 dark:text-emerald-400/70 mt-0.5">School: {school.name}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-4 p-5 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30">
-                  <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">
-                    <AlertTriangle size={24} className="text-amber-500" />
-                  </div>
-                  <p className="text-sm text-amber-800 dark:text-amber-300">Complete School Info first to create your academic session.</p>
-                </div>
-              )}
-            </div>
+            <SessionManager school={school} />
           )}
 
           {/* Step 2: Period Structure */}

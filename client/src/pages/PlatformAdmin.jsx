@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Shield, School, Users, AlertTriangle, Clock, Eye, Activity, BarChart3, Database, Cpu, HardDrive, RefreshCw, Plus, Search } from 'lucide-react';
+import { Shield, School, Users, AlertTriangle, Clock, Eye, Activity, BarChart3, Database, Cpu, HardDrive, RefreshCw, Plus, Search, Copy, CheckCircle, Key, CalendarDays } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import Modal from '../components/ui/Modal';
 
 export default function PlatformAdmin() {
   const { user, isPlatformUser } = useAuth();
@@ -15,6 +16,11 @@ export default function PlatformAdmin() {
   const [impersonation, setImpersonation] = useState({ schoolId: '', reason: '', hours: 2 });
   const [activeImpersonation, setActiveImpersonation] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAddSchool, setShowAddSchool] = useState(false);
+  const [schoolForm, setSchoolForm] = useState({ name: '', code: '', email: '', phone: '', address: '', adminName: '', adminEmail: '', adminPassword: '', sessionName: '', sessionStartDate: '', sessionEndDate: '' });
+  const [addingSchool, setAddingSchool] = useState(false);
+  const [createdAdmin, setCreatedAdmin] = useState(null);
+  const [copiedField, setCopiedField] = useState('');
 
   useEffect(() => {
     if (!isPlatformUser()) return;
@@ -52,6 +58,53 @@ export default function PlatformAdmin() {
     if (tab === 'audit') fetchAuditLogs();
     if (tab === 'users') fetchPlatformUsers();
   }, [tab]);
+
+  const handleAddSchool = async (e) => {
+    e.preventDefault();
+    if (!schoolForm.name.trim()) return toast.error('School name is required');
+    setAddingSchool(true);
+    try {
+      const payload = {
+        name: schoolForm.name,
+        code: schoolForm.code.trim() || schoolForm.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 20),
+        email: schoolForm.email,
+        phone: schoolForm.phone,
+        address: schoolForm.address,
+        adminName: schoolForm.adminName || undefined,
+        adminEmail: schoolForm.adminEmail || undefined,
+        adminPassword: schoolForm.adminPassword || undefined,
+        session: schoolForm.sessionName ? {
+          name: schoolForm.sessionName,
+          startDate: schoolForm.sessionStartDate || undefined,
+          endDate: schoolForm.sessionEndDate || undefined
+        } : undefined
+      };
+      const res = await api.post('/platform/schools', payload);
+      toast.success('School created successfully');
+      if (res.data?.data?.admin) {
+        setCreatedAdmin(res.data.data.admin);
+      } else {
+        setShowAddSchool(false);
+        setSchoolForm({ name: '', code: '', email: '', phone: '', address: '', adminName: '', adminEmail: '', adminPassword: '', sessionName: '', sessionStartDate: '', sessionEndDate: '' });
+      }
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || err.message || 'Failed to create school');
+    }
+    setAddingSchool(false);
+  };
+
+  const copyToClipboard = (text, field) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(''), 2000);
+  };
+
+  const closeSchoolModal = () => {
+    setShowAddSchool(false);
+    setCreatedAdmin(null);
+    setSchoolForm({ name: '', code: '', email: '', phone: '', address: '', adminName: '', adminEmail: '', adminPassword: '', sessionName: '', sessionStartDate: '', sessionEndDate: '' });
+  };
 
   if (!isPlatformUser()) {
     return (
@@ -193,7 +246,7 @@ export default function PlatformAdmin() {
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="input-field !pl-10" placeholder="Search schools..." />
                 </div>
-                <button className="btn-primary flex items-center gap-1.5 text-sm"><Plus size={16} />Add School</button>
+                <button onClick={() => setShowAddSchool(true)} className="btn-primary flex items-center gap-1.5 text-sm"><Plus size={16} />Create New School</button>
               </div>
               <p className="text-sm text-slate-500 dark:text-dark-400">{filteredSchools.length} school{filteredSchools.length !== 1 ? 's' : ''} on platform</p>
               {filteredSchools.map(s => (
@@ -293,6 +346,113 @@ export default function PlatformAdmin() {
           )}
         </>
       )}
+
+      {/* Add School Modal */}
+      <Modal isOpen={showAddSchool} onClose={closeSchoolModal} title={createdAdmin ? '✅ School Created Successfully' : 'Create New School'}>
+        {createdAdmin ? (
+          <div className="space-y-4 animate-fade-in">
+            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+              <div className="flex items-center gap-2 mb-3">
+                <CheckCircle size={18} className="text-emerald-400" />
+                <p className="text-sm font-semibold text-emerald-400">School admin created successfully</p>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-dark-400 mb-3">Save these credentials — the password will not be shown again.</p>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-100 dark:bg-dark-800">
+                  <span className="text-xs text-slate-500 w-16">Email</span>
+                  <span className="text-sm font-mono text-slate-800 dark:text-dark-100 flex-1">{createdAdmin.email}</span>
+                  <button onClick={() => copyToClipboard(createdAdmin.email, 'email')} className="text-slate-400 hover:text-primary-500 transition-colors">
+                    {copiedField === 'email' ? <CheckCircle size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-100 dark:bg-dark-800">
+                  <span className="text-xs text-slate-500 w-16">Password</span>
+                  <span className="text-sm font-mono text-slate-800 dark:text-dark-100 flex-1">{createdAdmin.tempPassword}</span>
+                  <button onClick={() => copyToClipboard(createdAdmin.tempPassword, 'password')} className="text-slate-400 hover:text-primary-500 transition-colors">
+                    {copiedField === 'password' ? <CheckCircle size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-100 dark:bg-dark-800">
+                  <span className="text-xs text-slate-500 w-16">Role</span>
+                  <span className="text-sm text-slate-800 dark:text-dark-100 flex-1">{createdAdmin.role?.replace(/_/g, ' ')}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button onClick={closeSchoolModal} className="btn-primary text-sm">Done</button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleAddSchool} className="space-y-4">
+            <p className="text-xs font-semibold text-slate-600 dark:text-dark-300 uppercase tracking-wider">School Details</p>
+            <div>
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">School Name *</label>
+              <input value={schoolForm.name} onChange={e => setSchoolForm(f => ({ ...f, name: e.target.value }))} className="input-field" placeholder="e.g., Delhi Public School" required />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">School Code</label>
+                <input value={schoolForm.code} onChange={e => setSchoolForm(f => ({ ...f, code: e.target.value }))} className="input-field" placeholder="Auto-generated" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">School Email</label>
+                <input type="email" value={schoolForm.email} onChange={e => setSchoolForm(f => ({ ...f, email: e.target.value }))} className="input-field" placeholder="school@example.com" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Phone</label>
+                <input value={schoolForm.phone} onChange={e => setSchoolForm(f => ({ ...f, phone: e.target.value }))} className="input-field" placeholder="+91 ..." />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Address</label>
+                <input value={schoolForm.address} onChange={e => setSchoolForm(f => ({ ...f, address: e.target.value }))} className="input-field" placeholder="City, State" />
+              </div>
+            </div>
+            <hr className="border-slate-200 dark:border-dark-700" />
+            <p className="text-xs font-semibold text-slate-600 dark:text-dark-300 uppercase tracking-wider flex items-center gap-1.5"><Key size={12} />Admin User (Recommended)</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Admin Name</label>
+                <input value={schoolForm.adminName} onChange={e => setSchoolForm(f => ({ ...f, adminName: e.target.value }))} className="input-field" placeholder="Principal Name" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Admin Email</label>
+                <input type="email" value={schoolForm.adminEmail} onChange={e => setSchoolForm(f => ({ ...f, adminEmail: e.target.value }))} className="input-field" placeholder="admin@school.com" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Password (auto-generated if empty)</label>
+              <input value={schoolForm.adminPassword} onChange={e => setSchoolForm(f => ({ ...f, adminPassword: e.target.value }))} className="input-field" placeholder="Leave blank to auto-generate" />
+            </div>
+            <hr className="border-slate-200 dark:border-dark-700" />
+            <p className="text-xs font-semibold text-slate-600 dark:text-dark-300 uppercase tracking-wider flex items-center gap-1.5"><CalendarDays size={12} />Academic Session</p>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Session Name</label>
+                <input value={schoolForm.sessionName} onChange={e => setSchoolForm(f => ({ ...f, sessionName: e.target.value }))} className="input-field" placeholder={`e.g., ${new Date().getFullYear()}-${(new Date().getFullYear() + 1).toString().slice(2)}`} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Start Date</label>
+                <input type="date" value={schoolForm.sessionStartDate} onChange={e => setSchoolForm(f => ({ ...f, sessionStartDate: e.target.value }))} className="input-field" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">End Date</label>
+                <input type="date" value={schoolForm.sessionEndDate} onChange={e => setSchoolForm(f => ({ ...f, sessionEndDate: e.target.value }))} className="input-field" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={closeSchoolModal} className="btn-secondary text-sm">Cancel</button>
+              <button type="submit" disabled={addingSchool} className="btn-primary text-sm flex items-center gap-1.5">
+                {addingSchool ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />}
+                {addingSchool ? 'Creating...' : 'Create School'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }

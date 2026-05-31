@@ -2,14 +2,17 @@ const CanTeach = require('../models/CanTeach');
 const Teacher = require('../models/Teacher');
 const Subject = require('../models/Subject');
 const Class = require('../models/Class');
-const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
 const AuditLog = require('../models/AuditLog');
 
-const getScope = async () => {
-  const school = await School.findOne();
-  const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
-  return { schoolId: school?._id, sessionId: session?._id };
+const getScope = async (req) => {
+  const schoolId = req.schoolId;
+  const sessionId = req.sessionId;
+  if (!sessionId && schoolId) {
+    const s = await AcademicSession.findOne({ school: schoolId, isCurrent: true });
+    return { schoolId, sessionId: s?._id };
+  }
+  return { schoolId, sessionId };
 };
 
 /**
@@ -17,20 +20,20 @@ const getScope = async () => {
  */
 exports.list = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
-    const { teacherId, subjectId, role, activeOnly } = req.query;
+    const { schoolId, sessionId } = await getScope(req);
+    const { teacherId, subjectId, eligibilityType, activeOnly } = req.query;
     
     const filter = { school: schoolId, session: sessionId };
     if (teacherId) filter.teacher = teacherId;
     if (subjectId) filter.subject = subjectId;
-    if (role) filter.role = role;
+    if (eligibilityType) filter.eligibilityType = eligibilityType;
     if (activeOnly === 'true') filter.isActive = true;
 
     const mappings = await CanTeach.find(filter)
       .populate('teacher', 'name shortName department status capabilities')
       .populate('subject', 'name code color type')
       .populate('eligibleClasses', 'name grade section stream')
-      .sort({ 'teacher.name': 1, role: 1, priority: -1 });
+      .sort({ 'teacher.name': 1, eligibilityType: 1, priority: -1 });
 
     res.json({ success: true, count: mappings.length, data: mappings });
   } catch (err) { next(err); }
@@ -41,21 +44,27 @@ exports.list = async (req, res, next) => {
  */
 exports.create = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
+    const { schoolId, sessionId } = await getScope(req);
     const data = {
       ...req.body,
       school: schoolId,
       session: sessionId
     };
 
+    // Backward compat: accept 'role' as alias for 'eligibilityType'
+    if (data.role && !data.eligibilityType) {
+      data.eligibilityType = data.role === 'fallback' ? 'secondary' : data.role;
+      delete data.role;
+    }
+
     // Check for duplicate
     const existing = await CanTeach.findOne({
       school: schoolId, session: sessionId,
       teacher: data.teacher, subject: data.subject,
-      role: data.role || 'primary'
+      eligibilityType: data.eligibilityType || 'primary'
     });
     if (existing) {
-      return res.status(409).json({ success: false, error: 'Mapping already exists for this teacher-subject-role combination' });
+      return res.status(409).json({ success: false, error: 'Mapping already exists for this teacher-subject-eligibilityType combination' });
     }
 
     const mapping = await CanTeach.create(data);
@@ -68,7 +77,7 @@ exports.create = async (req, res, next) => {
       action: 'create',
       entityType: 'can_teach',
       entityId: mapping._id,
-      description: `Can Teach mapping created: ${populated.teacher?.name} → ${populated.subject?.name} (${data.role || 'primary'})`,
+      description: `Can Teach mapping created: ${populated.teacher?.name} → ${populated.subject?.name} (${data.eligibilityType || 'primary'})`,
       newData: data,
       source: 'admin'
     });
@@ -82,7 +91,7 @@ exports.create = async (req, res, next) => {
  */
 exports.bulkUpsert = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
+    const { schoolId, sessionId } = await getScope(req);
     const { mappings } = req.body;
     if (!Array.isArray(mappings) || mappings.length === 0) {
       return res.status(400).json({ success: false, error: 'mappings array required' });
@@ -93,11 +102,17 @@ exports.bulkUpsert = async (req, res, next) => {
     for (const m of mappings) {
       if (!m.teacher || !m.subject) { skipped++; continue; }
 
+      // Backward compat
+      if (m.role && !m.eligibilityType) {
+        m.eligibilityType = m.role === 'fallback' ? 'secondary' : m.role;
+        delete m.role;
+      }
+
       const filter = {
         school: schoolId, session: sessionId,
         teacher: m.teacher, subject: m.subject
       };
-      if (m.role) filter.role = m.role;
+      if (m.eligibilityType) filter.eligibilityType = m.eligibilityType;
 
       const update = {
         ...m,
@@ -128,6 +143,12 @@ exports.bulkUpsert = async (req, res, next) => {
  */
 exports.update = async (req, res, next) => {
   try {
+    // Backward compat
+    if (req.body.role && !req.body.eligibilityType) {
+      req.body.eligibilityType = req.body.role === 'fallback' ? 'secondary' : req.body.role;
+      delete req.body.role;
+    }
+
     const mapping = await CanTeach.findByIdAndUpdate(req.params.id, req.body, { new: true })
       .populate('teacher', 'name shortName')
       .populate('subject', 'name code');
@@ -152,14 +173,14 @@ exports.remove = async (req, res, next) => {
  */
 exports.getByTeacher = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
+    const { schoolId, sessionId } = await getScope(req);
     const mappings = await CanTeach.find({
       school: schoolId, session: sessionId,
       teacher: req.params.teacherId, isActive: true
     })
       .populate('subject', 'name code color type')
       .populate('eligibleClasses', 'name grade section stream')
-      .sort({ role: 1, priority: -1 });
+      .sort({ eligibilityType: 1, priority: -1 });
 
     res.json({ success: true, count: mappings.length, data: mappings });
   } catch (err) { next(err); }
@@ -170,13 +191,14 @@ exports.getByTeacher = async (req, res, next) => {
  */
 exports.getBySubject = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
-    const { classId, stream, section } = req.query;
+    const { schoolId, sessionId } = await getScope(req);
+    const { classId, stream, section, mode } = req.query;
 
     const mappings = await CanTeach.findEligible({
       schoolId, sessionId,
       subjectId: req.params.subjectId,
-      classId, stream, section
+      classId, stream, section,
+      mode: mode || 'normal'
     });
 
     res.json({ success: true, count: mappings.length, data: mappings });
@@ -189,7 +211,7 @@ exports.getBySubject = async (req, res, next) => {
  */
 exports.findEligibleReplacements = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
+    const { schoolId, sessionId } = await getScope(req);
     const { subjectId, classId, day, period, excludeTeacherId } = req.query;
 
     if (!subjectId) return res.status(400).json({ success: false, error: 'subjectId required' });
@@ -200,10 +222,11 @@ exports.findEligibleReplacements = async (req, res, next) => {
     // Get class details for stream/section
     const classDoc = classId ? await Class.findById(classId) : null;
 
-    // Find eligible teachers
+    // Find eligible teachers (mode=replacement includes all types)
     const mappings = await CanTeach.findEligible({
       schoolId, sessionId, subjectId,
-      classId, stream: classDoc?.stream, section: classDoc?.section
+      classId, stream: classDoc?.stream, section: classDoc?.section,
+      mode: 'replacement'
     });
 
     // Get active timetable
@@ -252,7 +275,7 @@ exports.findEligibleReplacements = async (req, res, next) => {
           shortName: m.teacher.shortName,
           department: m.teacher.department
         },
-        role: m.role,
+        eligibilityType: m.eligibilityType,
         priority: m.priority,
         score,
         available,
@@ -276,7 +299,7 @@ exports.findEligibleReplacements = async (req, res, next) => {
  */
 exports.syncFromCapabilities = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
+    const { schoolId, sessionId } = await getScope(req);
     const teachers = await Teacher.find({ school: schoolId, session: sessionId });
 
     let created = 0, existing = 0;
@@ -296,7 +319,7 @@ exports.syncFromCapabilities = async (req, res, next) => {
           school: schoolId, session: sessionId,
           teacher: teacher._id,
           subject: cap.subject,
-          role: cap.proficiency || 'primary',
+          eligibilityType: cap.proficiency === 'primary' ? 'primary' : cap.proficiency === 'secondary' ? 'secondary' : 'secondary',
           priority: cap.proficiency === 'primary' ? 8 : cap.proficiency === 'secondary' ? 5 : 3,
           eligibleClasses: [],
           eligibleStreams: [],
@@ -324,19 +347,19 @@ exports.syncFromCapabilities = async (req, res, next) => {
  */
 exports.matrix = async (req, res, next) => {
   try {
-    const { schoolId, sessionId } = await getScope();
+    const { schoolId, sessionId } = await getScope(req);
     const [teachers, subjects, mappings] = await Promise.all([
       Teacher.find({ school: schoolId, session: sessionId, status: 'active' }).select('name shortName department').sort({ name: 1 }),
       Subject.find({ school: schoolId, session: sessionId, isActive: true }).select('name code color type').sort({ name: 1 }),
-      CanTeach.find({ school: schoolId, session: sessionId, isActive: true }).select('teacher subject role priority')
+      CanTeach.find({ school: schoolId, session: sessionId, isActive: true }).select('teacher subject eligibilityType priority')
     ]);
 
     // Build lookup
     const matrixMap = {};
     mappings.forEach(m => {
       const key = `${m.teacher}_${m.subject}`;
-      if (!matrixMap[key] || m.role === 'primary') {
-        matrixMap[key] = { role: m.role, priority: m.priority };
+      if (!matrixMap[key] || m.eligibilityType === 'primary') {
+        matrixMap[key] = { eligibilityType: m.eligibilityType, priority: m.priority };
       }
     });
 

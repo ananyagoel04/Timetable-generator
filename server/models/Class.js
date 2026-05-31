@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const classSchema = new mongoose.Schema({
   school: { type: mongoose.Schema.Types.ObjectId, ref: 'School', required: true },
   session: { type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession', required: true },
+  // Multi-session activation: class can be active/inactive per session
+  activeSessions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'AcademicSession' }],
   name: { type: String, required: true, trim: true }, // "10-A"
   grade: { type: Number, required: true, min: -2, max: 12 }, // -2=Nursery, -1=LKG, 0=UKG, 1-12=Standard
   section: { type: String, required: true, uppercase: true, trim: true },

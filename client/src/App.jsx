@@ -33,6 +33,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import SchoolSessionSelector from './pages/SchoolSessionSelector';
 import AnalyticsDashboard from './pages/AnalyticsDashboard';
 import RoleManagement from './pages/RoleManagement';
+import SessionManagement from './pages/SessionManagement';
 import { lazy, Suspense } from 'react';
 
 // Lazy-load the Manual Timetable Builder (heavy page)
@@ -64,8 +65,14 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
-  // Authenticated but no school selected — redirect to school selector
-  // (platform users also need to select a school for context)
+  // Platform users: allowed into Layout WITHOUT a selected school.
+  // They'll see school-scoped items disabled in the sidebar until they pick a school.
+  if (isPlatformUser()) {
+    if (import.meta.env.DEV) console.debug('[RouteGuard] allowed:platformUser', { selectedSchool });
+    return children;
+  }
+
+  // School users: must have a school selected
   if (!selectedSchool) {
     if (import.meta.env.DEV) console.debug('[RouteGuard] redirect:noSchool');
     return <Navigate to="/select-school" replace />;
@@ -160,6 +167,7 @@ function AppRoutes() {
 
         {/* System — admin only */}
         <Route path="/users" element={<Gated permissions={['manage_users']}><UserManagement /></Gated>} />
+        <Route path="/sessions" element={<Gated permissions={['edit_setup']}><SessionManagement /></Gated>} />
         <Route path="/audit-logs" element={<Gated permissions={['view_audit']}><AuditLogs /></Gated>} />
 
         {/* Platform — platform users only */}

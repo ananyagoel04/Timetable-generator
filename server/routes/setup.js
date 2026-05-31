@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authorize } = require('../middleware/auth');
+const { authorize, platformOnly } = require('../middleware/auth');
 const sc = require('../controllers/setupController');
 const seedCtrl = require('../controllers/seedController');
 
@@ -12,6 +12,9 @@ router.put('/school', authorize('edit_setup', 'manage_school'), sc.updateSchool)
 router.get('/sessions', authorize('view_timetable', 'edit_setup'), sc.getSessions);
 router.post('/sessions', authorize('edit_setup', 'manage_school'), sc.createSession);
 router.put('/sessions/:id', authorize('edit_setup', 'manage_school'), sc.updateSession);
+router.put('/sessions/:id/activate', authorize('edit_setup', 'manage_school'), sc.activateSession);
+router.put('/sessions/:id/archive', authorize('edit_setup', 'manage_school'), sc.archiveSession);
+router.post('/sessions/:id/copy-setup', authorize('edit_setup', 'manage_school'), sc.copySessionSetup);
 
 // Period Structure (single - backward compat)
 router.get('/period-structure', authorize('view_timetable', 'edit_setup'), sc.getPeriodStructure);
@@ -40,8 +43,13 @@ router.get('/readiness-audit', authorize('edit_setup', 'manage_school'), sc.getR
 // Validate Step
 router.post('/validate-step', authorize('edit_setup', 'manage_school'), sc.validateStep);
 
-// Seed Data
-router.post('/seed', authorize('edit_setup', 'manage_school'), seedCtrl.seedData);
+// Seed Data — platform/developer ONLY, disabled in production
+router.post('/seed', platformOnly, (req, res, next) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ success: false, error: 'Seed operations are disabled in production' });
+  }
+  next();
+}, seedCtrl.seedData);
 
 
 module.exports = router;

@@ -12,7 +12,7 @@ const { createAuditEntry } = require('../services/auditHelper');
 
 exports.getSubstitutions = async (req, res, next) => {
   try {
-    const schoolId = req.schoolId || (await School.findOne())?._id;
+    const schoolId = req.schoolId;
     const subs = await Substitution.find({ school: schoolId })
       .populate('originalTeacher substituteTeacher class subject')
       .sort({ date: -1 });
@@ -22,7 +22,7 @@ exports.getSubstitutions = async (req, res, next) => {
 
 exports.createSubstitution = async (req, res, next) => {
   try {
-    const schoolId = req.schoolId || (await School.findOne())?._id;
+    const schoolId = req.schoolId;
     const sub = await Substitution.create({ ...req.body, school: schoolId });
     const populated = await sub.populate('originalTeacher substituteTeacher class subject');
 
@@ -75,7 +75,7 @@ exports.updateSubstitution = async (req, res, next) => {
  */
 exports.getDailySheet = async (req, res, next) => {
   try {
-    const schoolId = req.schoolId || (await School.findOne())?._id;
+    const schoolId = req.schoolId;
     const date = new Date(req.params.date);
     const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
@@ -184,7 +184,7 @@ exports.getAvailable = async (req, res, next) => {
     const { day, period, subjectId, classId, originalTeacherId } = req.query;
     if (!day || !period) return res.status(400).json({ success: false, error: 'day and period required' });
 
-    const schoolId = req.schoolId || (await School.findOne())?._id;
+    const schoolId = req.schoolId;
     const tt = await GeneratedTimetable.findOne({ school: schoolId, status: { $in: ['draft', 'published'] } }).sort({ createdAt: -1 });
     if (!tt) return res.json({ success: true, count: 0, data: [] });
 

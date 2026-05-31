@@ -36,13 +36,14 @@ const ReservedPeriodRule = require('../models/ReservedPeriodRule');
 const CanTeach = require('../models/CanTeach');
 
 // Optional models for sample data
-let AuditLog, GeneratedTimetable, LessonBlock, Substitution, ConflictLog, Snapshot;
+let AuditLog, GeneratedTimetable, LessonBlock, Substitution, ConflictLog, Snapshot, Absence;
 try { AuditLog = require('../models/AuditLog'); } catch(e) {}
 try { GeneratedTimetable = require('../models/GeneratedTimetable'); } catch(e) {}
 try { LessonBlock = require('../models/LessonBlock'); } catch(e) {}
 try { Substitution = require('../models/Substitution'); } catch(e) {}
 try { ConflictLog = require('../models/ConflictLog'); } catch(e) {}
 try { Snapshot = require('../models/Snapshot'); } catch(e) {}
+try { Absence = require('../models/Absence'); } catch(e) {}
 
 const isReset = process.argv.includes('--reset');
 const PLAIN_PW = 'admin123'; // User model pre-save hook will hash this
@@ -169,7 +170,7 @@ async function createCanTeach(school, session, teacherDefs, teachers, subjects) 
       await CanTeach.create({
         school: school._id, session: session._id,
         teacher: t._id, subject: s._id,
-        role: 'primary', priority: 8, isActive: true
+        eligibilityType: 'primary', priority: 8, isActive: true
       });
     }
   }
@@ -210,10 +211,21 @@ async function seedSchool1() {
     }
   });
 
-  const session = await AcademicSession.create({
+  // Multi-session: 2025-26 (archived), 2026-27 (active), 2027-28 (draft)
+  await AcademicSession.create({
     school: school._id, name: '2025-26',
     startDate: new Date('2025-04-01'), endDate: new Date('2026-03-31'),
+    isCurrent: false, status: 'archived'
+  });
+  const session = await AcademicSession.create({
+    school: school._id, name: '2026-27',
+    startDate: new Date('2026-04-01'), endDate: new Date('2027-03-31'),
     isCurrent: true, status: 'active'
+  });
+  await AcademicSession.create({
+    school: school._id, name: '2027-28',
+    startDate: new Date('2027-04-01'), endDate: new Date('2028-03-31'),
+    isCurrent: false, status: 'draft'
   });
 
   await createSchoolUsers(school, session, 'sunrise', 'Sunrise');
@@ -352,12 +364,12 @@ async function seedSchool2() {
   });
 
   const session = await AcademicSession.create({
-    school: school._id, name: '2025-26',
-    startDate: new Date('2025-04-01'), endDate: new Date('2026-03-31'),
+    school: school._id, name: '2026-27',
+    startDate: new Date('2026-04-01'), endDate: new Date('2027-03-31'),
     isCurrent: true, status: 'active'
   });
 
-  await createSchoolUsers(school, session, 'dms', 'DMS');
+  await createSchoolUsers(school, session, 'delhimodel', 'Delhi Model');
 
   const subjectList = [
     { name: 'English', code: 'ENG', type: 'theory', color: '#3B82F6', preferMorning: true },
@@ -548,12 +560,12 @@ async function seedSchool3() {
   });
 
   const session = await AcademicSession.create({
-    school: school._id, name: '2025-26',
-    startDate: new Date('2025-04-01'), endDate: new Date('2026-03-31'),
+    school: school._id, name: '2026-27',
+    startDate: new Date('2026-04-01'), endDate: new Date('2027-03-31'),
     isCurrent: true, status: 'active'
   });
 
-  await createSchoolUsers(school, session, 'nsss', 'NSSS');
+  await createSchoolUsers(school, session, 'seniorscholars', 'Senior Scholars');
 
   const subjectList = [
     { name: 'English', code: 'ENG', type: 'theory', color: '#3B82F6', preferMorning: true },
@@ -810,12 +822,12 @@ async function seedSchool4() {
   });
 
   const session = await AcademicSession.create({
-    school: school._id, name: '2025-26',
-    startDate: new Date('2025-04-01'), endDate: new Date('2026-03-31'),
+    school: school._id, name: '2026-27',
+    startDate: new Date('2026-04-01'), endDate: new Date('2027-03-31'),
     isCurrent: true, status: 'active'
   });
 
-  await createSchoolUsers(school, session, 'mega', 'Mega');
+  await createSchoolUsers(school, session, 'stressschool', 'Stress School');
 
   const subjectList = [
     { name: 'English', code: 'ENG', type: 'theory', color: '#3B82F6' },
@@ -970,8 +982,8 @@ async function seedSchool5() {
   });
 
   const session = await AcademicSession.create({
-    school: school._id, name: '2025-26',
-    startDate: new Date('2025-04-01'), endDate: new Date('2026-03-31'),
+    school: school._id, name: '2026-27',
+    startDate: new Date('2026-04-01'), endDate: new Date('2027-03-31'),
     isCurrent: true, status: 'active'
   });
 
@@ -1053,19 +1065,151 @@ async function seedSchool5() {
 // PLATFORM ADMIN USER (cross-school access)
 // ═══════════════════════════════════════════════════════════════
 async function seedPlatformAdmin(schools) {
-  console.log('\n👤 Creating Platform Admin user...');
+  console.log('\n👤 Creating Platform users...');
   const schoolEntries = schools.map(s => ({
     school: s._id, role: 'school_owner', permissions: ALL_PERMISSIONS, isActive: true
   }));
 
+  const activeSession = await AcademicSession.findOne({ school: schools[0]._id, isCurrent: true });
+
   await User.create({
-    name: 'Platform Admin', email: 'platform@timecraft.dev', password: PLAIN_PW,
+    name: 'Platform Admin', email: 'platform@erp.com', password: PLAIN_PW,
+    role: 'platform_owner',
+    schools: schoolEntries,
+    activeSchool: schools[0]._id,
+    activeSession: activeSession._id,
+    platformPermissions: ['impersonate_school', 'view_all_audit', 'manage_schools', 'debug_access', 'deploy', 'view_metrics'],
+    isActive: true
+  });
+
+  await User.create({
+    name: 'Developer', email: 'developer@erp.com', password: 'developer123',
     role: 'platform_developer',
     schools: schoolEntries,
     activeSchool: schools[0]._id,
-    activeSession: (await AcademicSession.findOne({ school: schools[0]._id }))._id,
+    activeSession: activeSession._id,
+    platformPermissions: ['impersonate_school', 'view_all_audit', 'manage_schools', 'debug_access', 'view_metrics'],
     isActive: true
   });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SAMPLE OPERATIONAL DATA (Timetables, Absences, Substitutions, Audit)
+// ═══════════════════════════════════════════════════════════════
+async function seedSampleData(schools) {
+  console.log('\n📋 Creating sample operational data...');
+
+  for (const school of schools) {
+    const session = await AcademicSession.findOne({ school: school._id, isCurrent: true });
+    if (!session) continue;
+
+    const schoolTeachers = await Teacher.find({ school: school._id, session: session._id }).limit(5);
+    const schoolClasses = await Class.find({ school: school._id, session: session._id }).limit(3);
+    const schoolSubjects = await Subject.find({ school: school._id, session: session._id }).limit(3);
+    const schoolRooms = await Room.find({ school: school._id }).limit(3);
+    const ps = await PeriodStructure.findOne({ school: school._id, session: session._id });
+
+    // ── Sample Draft Timetable ──
+    if (GeneratedTimetable && LessonBlock && schoolClasses.length > 0 && schoolTeachers.length > 0) {
+      const draftTT = await GeneratedTimetable.create({
+        school: school._id, session: session._id,
+        name: `${school.name} - Draft v1`,
+        version: 1, status: 'draft', creationMode: 'manual',
+        generatedAt: new Date(),
+        stats: { totalBlocks: 6, placedBlocks: 6, unplacedBlocks: 0, hardConflicts: 0, softRuleScore: 82, generationTimeMs: 1200 },
+        isActive: true
+      });
+
+      // Create a few lesson blocks for the draft
+      const days = ['Monday', 'Tuesday', 'Wednesday'];
+      const blocks = [];
+      for (let d = 0; d < days.length; d++) {
+        for (let p = 1; p <= 2; p++) {
+          blocks.push({
+            school: school._id, timetable: draftTT._id,
+            type: 'normal', duration: 1,
+            subject: schoolSubjects[d % schoolSubjects.length]?._id,
+            teacher: schoolTeachers[d % schoolTeachers.length]?._id,
+            room: schoolRooms[d % schoolRooms.length]?._id,
+            classes: [schoolClasses[0]._id],
+            day: days[d], periods: [p],
+            periodStructure: ps?._id,
+            source: 'manual', isDraft: true
+          });
+        }
+      }
+      if (blocks.length > 0) await LessonBlock.insertMany(blocks);
+
+      // Update stats
+      draftTT.stats.totalBlocks = blocks.length;
+      draftTT.stats.placedBlocks = blocks.length;
+      await draftTT.save();
+    }
+
+    // ── Sample Absences (2 per school) ──
+    if (Absence && schoolTeachers.length >= 2) {
+      const today = new Date();
+      const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+
+      await Absence.create({
+        school: school._id, session: session._id,
+        teacher: schoolTeachers[0]._id,
+        absenceType: 'full_day',
+        date: yesterday,
+        reason: 'Medical leave',
+        status: 'active'
+      });
+      await Absence.create({
+        school: school._id, session: session._id,
+        teacher: schoolTeachers[1]._id,
+        absenceType: 'full_day',
+        date: today,
+        reason: 'Personal work',
+        status: 'active'
+      });
+    }
+
+    // ── Sample Substitutions (1 per school for schools with enough teachers) ──
+    if (Substitution && schoolTeachers.length >= 3) {
+      try {
+        await Substitution.create({
+          school: school._id, session: session._id,
+          originalTeacher: schoolTeachers[0]._id,
+          substituteTeacher: schoolTeachers[2]._id,
+          class: schoolClasses[0]?._id,
+          subject: schoolSubjects[0]?._id,
+          date: new Date(),
+          period: 1,
+          status: 'pending',
+          notes: 'Seeded sample substitution'
+        });
+      } catch(e) { /* schema may differ */ }
+    }
+
+    // ── Sample Audit Logs (3 per school) ──
+    if (AuditLog) {
+      const auditEntries = [
+        { action: 'login', entityType: 'user', entityName: `${school.name} Admin`, reason: 'Admin login' },
+        { action: 'create', entityType: 'class', entityName: schoolClasses[0]?.name || 'Class 1-A', reason: 'Initial setup' },
+        { action: 'generate', entityType: 'timetable', entityName: 'Timetable v1', reason: 'Auto-generation' }
+      ];
+      for (const entry of auditEntries) {
+        try {
+          await AuditLog.create({
+            school: school._id,
+            action: entry.action,
+            entityType: entry.entityType,
+            entityName: entry.entityName,
+            reason: entry.reason,
+            performedBy: 'system',
+            timestamp: new Date()
+          });
+        } catch(e) { /* schema may differ */ }
+      }
+    }
+  }
+
+  console.log('   ✅ Sample timetables, absences, substitutions, and audit logs created');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1094,6 +1238,7 @@ async function main() {
     if (Substitution) allModels.push(Substitution);
     if (ConflictLog) allModels.push(ConflictLog);
     if (Snapshot) allModels.push(Snapshot);
+    if (Absence) allModels.push(Absence);
 
     for (const M of allModels) {
       try { await M.deleteMany({}); } catch(e) { /* skip if model schema issue */ }
@@ -1109,25 +1254,29 @@ async function main() {
   const school3 = await seedSchool3();
   const school4 = await seedSchool4();
   const school5 = await seedSchool5();
-  await seedPlatformAdmin([school1, school2, school3, school4, school5]);
+  const allSchools = [school1, school2, school3, school4, school5];
+  await seedPlatformAdmin(allSchools);
+  await seedSampleData(allSchools);
 
   console.log('\n' + '═'.repeat(50));
   console.log('✅ SEED COMPLETE!');
   console.log('═'.repeat(50));
   console.log('\n📊 Summary:');
-  console.log('   School 1: Sunrise Primary (small, 8 classes, low conflicts)');
+  console.log('   School 1: Sunrise Primary (small, 8 classes, 3 sessions)');
   console.log('   School 2: Delhi Model School (medium, 20 classes)');
-  console.log('   School 3: National Sr. Secondary (streams, split groups, labs)');
-  console.log('   School 4: Mega City Academy (30 classes, stress test)');
+  console.log('   School 3: Senior Scholars Academy (streams, split groups, labs)');
+  console.log('   School 4: Stress Test International (30 classes, stress test)');
   console.log('   School 5: Impossible School (3 teachers, 8 classes, diagnostics)');
-  console.log('\n🔑 Login Credentials (all passwords: admin123):');
-  console.log('   Platform:  platform@timecraft.dev');
-  console.log('   School 1:  admin@sunrise.edu.in');
-  console.log('   School 2:  admin@dms.edu.in');
-  console.log('   School 3:  admin@nsss.edu.in');
-  console.log('   School 4:  admin@mega.edu.in');
-  console.log('   School 5:  admin@impossible.edu.in');
+  console.log('\n🔑 Login Credentials:');
+  console.log('   Platform:  platform@erp.com / admin123');
+  console.log('   Developer: developer@erp.com / developer123');
+  console.log('   School 1:  admin@sunrise.edu.in / admin123');
+  console.log('   School 2:  admin@delhimodel.edu.in / admin123');
+  console.log('   School 3:  admin@seniorscholars.edu.in / admin123');
+  console.log('   School 4:  admin@stressschool.edu.in / admin123');
+  console.log('   School 5:  admin@impossible.edu.in / admin123');
   console.log('\n   Each school also has: principal@, timetable@, teacher@, viewer@');
+  console.log('   Active session: 2026-27 (School 1 also has 2025-26 archived, 2027-28 draft)');
 
   await mongoose.connection.close();
   process.exit(0);

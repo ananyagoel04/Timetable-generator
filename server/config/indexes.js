@@ -144,10 +144,28 @@ async function ensureIndexes() {
     // ── CanTeach indexes ──
     const CanTeach = mongoose.model('CanTeach');
     await CanTeach.collection.createIndex(
-      { school: 1, teacher: 1, subject: 1 },
-      { background: true, unique: true, name: 'ct_school_teacher_subject' }
+      { school: 1, session: 1, teacher: 1, subject: 1 },
+      { background: true, name: 'ct_school_session_teacher_subject' }
     );
-    results.push('CanTeach: 1 index');
+    await CanTeach.collection.createIndex(
+      { school: 1, session: 1, subject: 1, eligibilityType: 1 },
+      { background: true, name: 'ct_school_session_subject_elig' }
+    );
+    results.push('CanTeach: 2 indexes');
+
+    // ── ClassSubjectMapping indexes ──
+    try {
+      const ClassSubjectMapping = mongoose.model('ClassSubjectMapping');
+      await ClassSubjectMapping.collection.createIndex(
+        { school: 1, session: 1, class: 1, subject: 1 },
+        { background: true, unique: true, name: 'csm_school_session_class_subject' }
+      );
+      await ClassSubjectMapping.collection.createIndex(
+        { school: 1, session: 1, class: 1 },
+        { background: true, name: 'csm_school_session_class' }
+      );
+      results.push('ClassSubjectMapping: 2 indexes');
+    } catch (e) { /* model may not exist */ }
 
     // ── GeneratedTimetable indexes ──
     const GeneratedTimetable = mongoose.model('GeneratedTimetable');

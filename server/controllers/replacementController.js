@@ -12,10 +12,14 @@ const { createNotification } = require('./notificationController');
 const { withTransaction } = require('../services/transactionHelper');
 const { createAuditEntry } = require('../services/auditHelper');
 
-const getScope = async () => {
-  const school = await School.findOne();
-  const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
-  return { schoolId: school?._id, sessionId: session?._id };
+const getScope = async (req) => {
+  const schoolId = req.schoolId;
+  const sessionId = req.sessionId;
+  if (!sessionId && schoolId) {
+    const s = await AcademicSession.findOne({ school: schoolId, isCurrent: true });
+    return { schoolId, sessionId: s?._id };
+  }
+  return { schoolId, sessionId };
 };
 
 /**
@@ -31,7 +35,7 @@ exports.previewReplacement = async (req, res, next) => {
     const newTeacher = await Teacher.findById(newTeacherId);
     if (!oldTeacher || !newTeacher) return res.status(404).json({ success: false, error: 'Teacher not found' });
 
-    const { schoolId, sessionId } = await getScope();
+    const { schoolId, sessionId } = await getScope(req);
 
     // Get assignments being transferred
     const requirements = await SubjectRequirement.find({
@@ -130,7 +134,7 @@ exports.applyReplacement = async (req, res, next) => {
     const newTeacher = await Teacher.findById(newTeacherId);
     if (!oldTeacher || !newTeacher) return res.status(404).json({ success: false, error: 'Teacher not found' });
 
-    const { schoolId, sessionId } = await getScope();
+    const { schoolId, sessionId } = await getScope(req);
 
     const results = await withTransaction(async (session) => {
       const opts = session ? { session } : {};
@@ -257,7 +261,7 @@ exports.applyReplacement = async (req, res, next) => {
 exports.getWorkload = async (req, res, next) => {
   try {
     const teacherId = req.params.id;
-    const { schoolId, sessionId } = await getScope();
+    const { schoolId, sessionId } = await getScope(req);
 
     const teacher = await Teacher.findById(teacherId);
     if (!teacher) return res.status(404).json({ success: false, error: 'Teacher not found' });

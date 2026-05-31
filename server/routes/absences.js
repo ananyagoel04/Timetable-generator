@@ -8,6 +8,7 @@ router.get('/unresolved', authorize('manage_absences', 'edit_timetable'), ctrl.g
 // suggest-substitutes MUST be before /:id to prevent Express treating it as an ObjectId
 router.get('/suggest-substitutes', authorize('manage_absences', 'view_timetable'), require('./absencesSuggestSubstitutes'));
 router.post('/', authorize('manage_absences'), ctrl.createAbsence);
+router.post('/bulk', authorize('manage_absences'), ctrl.createBulkAbsence);
 router.get('/:id', authorize('view_timetable', 'manage_absences'), ctrl.getAbsenceDetail);
 router.put('/:id/cancel', authorize('manage_absences'), ctrl.cancelAbsence);
 router.put('/:id/resolve', authorize('manage_absences', 'edit_timetable'), ctrl.manualResolve);

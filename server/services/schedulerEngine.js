@@ -100,12 +100,15 @@ class SchedulerEngine {
       coveredSet,
       existingBlocks: [],
       classPeriodMap: this.classPeriodMap,
-      teachers: this.teachers
+      teachers: this.teachers,
+      canTeachMappings: this.canTeachMappings || []
     });
     const rawBlocks = rawResult.blocks || rawResult; // backward-compat
     if (rawResult.warnings?.length > 0) {
       console.warn('[SchedulerEngine] Block generation warnings:', rawResult.warnings);
     }
+    // Collect eligibility errors for final diagnostic output
+    const eligibilityErrors = rawResult.eligibilityErrors || [];
 
     // Stage 2 continued: resolve combinations + deduplicate
     const { combinedBlocks, filteredRawBlocks } = combinationResolver.resolve(
@@ -179,7 +182,7 @@ class SchedulerEngine {
     });
 
     this.blocks = placedBlocks;
-    this.errors = errors;
+    this.errors = [...errors, ...eligibilityErrors];
 
     // ═══ 5. SAVE ALL BLOCKS ═══
     this.onProgress('saving', 92);

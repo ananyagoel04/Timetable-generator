@@ -12,6 +12,9 @@
     "seed:reset": "node seed/seedData.js --reset",
     "seed:multi-school": "node seed/seedData.js",
     "seed:timetable-test": "node seed/seedData.js --reset",
+    "seed:verify": "node seed/seedVerify.js",
+    "seed:smoke": "node seed/seedSmoke.js",
+    "seed:demo": "node seed/seedData.js --reset",
     "indexes:fix": "node scripts/fixIndexes.js"
   },
   "dependencies": {

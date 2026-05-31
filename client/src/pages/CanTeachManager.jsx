@@ -1,17 +1,18 @@
 import { useState, useEffect, useMemo } from 'react';
-import { BookOpen, Users, Plus, Trash2, Save, RefreshCw, Loader2, Filter, Grid3X3, List, AlertTriangle, CheckCircle, Upload, X, ChevronDown, Star } from 'lucide-react';
+import { BookOpen, Users, Plus, Trash2, Save, RefreshCw, Loader2, Filter, Grid3X3, List, AlertTriangle, CheckCircle, Upload, X, ChevronDown, Star, Shield, UserCheck } from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Modal from '../components/ui/Modal';
 
-const ROLES = [
+const ELIGIBILITY_TYPES = [
   { value: 'primary', label: 'Primary', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400', icon: '🟢' },
   { value: 'secondary', label: 'Secondary', color: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400', icon: '🔵' },
-  { value: 'fallback', label: 'Fallback', color: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400', icon: '🟡' }
+  { value: 'substitute_only', label: 'Substitute Only', color: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400', icon: '🟡' },
+  { value: 'replacement_only', label: 'Replacement Only', color: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400', icon: '🟣' }
 ];
 
 export default function CanTeachManager() {
-  const [viewMode, setViewMode] = useState('matrix'); // matrix | teacher | subject
+  const [viewMode, setViewMode] = useState('matrix'); // matrix | list
   const [matrixData, setMatrixData] = useState(null);
   const [mappings, setMappings] = useState([]);
   const [teachers, setTeachers] = useState([]);
@@ -23,19 +24,22 @@ export default function CanTeachManager() {
   // Filters
   const [filterTeacher, setFilterTeacher] = useState('');
   const [filterSubject, setFilterSubject] = useState('');
-  const [filterRole, setFilterRole] = useState('');
+  const [filterEligibility, setFilterEligibility] = useState('');
   const [filterDept, setFilterDept] = useState('');
 
   // Add modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState({ teacher: '', subject: '', role: 'primary', priority: 8, eligibleClasses: [], eligibleStreams: [], notes: '' });
+  const [addForm, setAddForm] = useState({
+    teacher: '', subject: '', eligibilityType: 'primary', priority: 8,
+    eligibleClasses: [], eligibleStreams: [], maxPeriodsPerWeek: '', maxPeriodsPerDay: '', notes: ''
+  });
   const [addSaving, setAddSaving] = useState(false);
 
   // Bulk assign modal
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkTeachers, setBulkTeachers] = useState([]);
   const [bulkSubjects, setBulkSubjects] = useState([]);
-  const [bulkRole, setBulkRole] = useState('primary');
+  const [bulkEligibility, setBulkEligibility] = useState('primary');
   const [bulkPriority, setBulkPriority] = useState(5);
   const [bulkSaving, setBulkSaving] = useState(false);
 
@@ -75,10 +79,17 @@ export default function CanTeachManager() {
     if (!addForm.teacher || !addForm.subject) return toast.error('Teacher and subject required');
     setAddSaving(true);
     try {
-      await api.post('/can-teach', addForm);
+      await api.post('/can-teach', {
+        ...addForm,
+        maxPeriodsPerWeek: addForm.maxPeriodsPerWeek ? parseInt(addForm.maxPeriodsPerWeek) : undefined,
+        maxPeriodsPerDay: addForm.maxPeriodsPerDay ? parseInt(addForm.maxPeriodsPerDay) : undefined
+      });
       toast.success('Mapping added');
       setShowAddModal(false);
-      setAddForm({ teacher: '', subject: '', role: 'primary', priority: 8, eligibleClasses: [], eligibleStreams: [], notes: '' });
+      setAddForm({
+        teacher: '', subject: '', eligibilityType: 'primary', priority: 8,
+        eligibleClasses: [], eligibleStreams: [], maxPeriodsPerWeek: '', maxPeriodsPerDay: '', notes: ''
+      });
       loadAll();
     } catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
     finally { setAddSaving(false); }
@@ -108,7 +119,7 @@ export default function CanTeachManager() {
       const mappingsToCreate = [];
       for (const t of bulkTeachers) {
         for (const s of bulkSubjects) {
-          mappingsToCreate.push({ teacher: t, subject: s, role: bulkRole, priority: bulkPriority });
+          mappingsToCreate.push({ teacher: t, subject: s, eligibilityType: bulkEligibility, priority: bulkPriority });
         }
       }
       const res = await api.post('/can-teach/bulk', { mappings: mappingsToCreate });
@@ -126,31 +137,32 @@ export default function CanTeachManager() {
     return mappings.filter(m => {
       if (filterTeacher && m.teacher?._id !== filterTeacher) return false;
       if (filterSubject && m.subject?._id !== filterSubject) return false;
-      if (filterRole && m.role !== filterRole) return false;
+      if (filterEligibility && m.eligibilityType !== filterEligibility) return false;
       if (filterDept && m.teacher?.department !== filterDept) return false;
       return true;
     });
-  }, [mappings, filterTeacher, filterSubject, filterRole, filterDept]);
+  }, [mappings, filterTeacher, filterSubject, filterEligibility, filterDept]);
 
   // Unique departments
   const departments = [...new Set(teachers.map(t => t.department).filter(Boolean))].sort();
 
   // Stats
   const totalMappings = mappings.length;
-  const primaryCount = mappings.filter(m => m.role === 'primary').length;
-  const secondaryCount = mappings.filter(m => m.role === 'secondary').length;
-  const fallbackCount = mappings.filter(m => m.role === 'fallback').length;
+  const primaryCount = mappings.filter(m => m.eligibilityType === 'primary').length;
+  const secondaryCount = mappings.filter(m => m.eligibilityType === 'secondary').length;
+  const substituteCount = mappings.filter(m => m.eligibilityType === 'substitute_only').length;
+  const replacementCount = mappings.filter(m => m.eligibilityType === 'replacement_only').length;
   const teachersWithMappings = [...new Set(mappings.map(m => m.teacher?._id))].length;
 
-  const getRoleConfig = (role) => ROLES.find(r => r.value === role) || ROLES[0];
+  const getTypeConfig = (type) => ELIGIBILITY_TYPES.find(r => r.value === type) || ELIGIBILITY_TYPES[0];
 
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
-          <h1 className="page-title">Can Teach Eligibility</h1>
-          <p className="page-subtitle">Configure which teachers can teach which subjects, with priority and role settings</p>
+          <h1 className="page-title">Teacher Eligibility</h1>
+          <p className="page-subtitle">Configure which teachers can teach which subjects, with priority and eligibility settings</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={syncCapabilities} disabled={syncing} className="btn-secondary text-xs px-3 py-2 flex items-center gap-1.5">
@@ -167,7 +179,7 @@ export default function CanTeachManager() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         <div className="glass-card p-3">
           <p className="text-xs text-slate-500 dark:text-dark-400">Total Mappings</p>
           <p className="text-lg font-bold text-slate-900 dark:text-dark-50">{totalMappings}</p>
@@ -181,8 +193,12 @@ export default function CanTeachManager() {
           <p className="text-lg font-bold text-blue-700 dark:text-blue-300">{secondaryCount}</p>
         </div>
         <div className="glass-card p-3">
-          <p className="text-xs text-amber-600 dark:text-amber-400">Fallback</p>
-          <p className="text-lg font-bold text-amber-700 dark:text-amber-300">{fallbackCount}</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">Substitute</p>
+          <p className="text-lg font-bold text-amber-700 dark:text-amber-300">{substituteCount}</p>
+        </div>
+        <div className="glass-card p-3">
+          <p className="text-xs text-purple-600 dark:text-purple-400">Replacement</p>
+          <p className="text-lg font-bold text-purple-700 dark:text-purple-300">{replacementCount}</p>
         </div>
         <div className="glass-card p-3">
           <p className="text-xs text-purple-600 dark:text-purple-400">Teachers Mapped</p>
@@ -206,9 +222,9 @@ export default function CanTeachManager() {
           {departments.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
 
-        <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="select-field w-32 text-xs !py-1.5">
-          <option value="">All Roles</option>
-          {ROLES.map(r => <option key={r.value} value={r.value}>{r.icon} {r.label}</option>)}
+        <select value={filterEligibility} onChange={e => setFilterEligibility(e.target.value)} className="select-field w-40 text-xs !py-1.5">
+          <option value="">All Types</option>
+          {ELIGIBILITY_TYPES.map(r => <option key={r.value} value={r.value}>{r.icon} {r.label}</option>)}
         </select>
 
         <button onClick={loadAll} className="btn-secondary p-1.5" title="Refresh">
@@ -216,8 +232,29 @@ export default function CanTeachManager() {
         </button>
       </div>
 
+      {/* Empty State */}
+      {!loading && totalMappings === 0 && (
+        <div className="glass-card p-8 text-center">
+          <UserCheck className="mx-auto text-slate-300 dark:text-dark-600 mb-3" size={48} />
+          <h3 className="text-lg font-semibold text-slate-700 dark:text-dark-200 mb-2">No Eligibility Mappings</h3>
+          <p className="text-sm text-slate-500 dark:text-dark-400 mb-4">
+            Click "Sync from Capabilities" to auto-generate mappings from teacher capabilities,
+            or use "Add Mapping" to create them manually.
+          </p>
+          <div className="flex justify-center gap-3">
+            <button onClick={syncCapabilities} disabled={syncing} className="btn-primary text-sm px-4 py-2 flex items-center gap-2">
+              {syncing ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
+              Sync from Capabilities
+            </button>
+            <button onClick={() => setShowAddModal(true)} className="btn-secondary text-sm px-4 py-2 flex items-center gap-2">
+              <Plus size={14} /> Add Manually
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* MATRIX VIEW */}
-      {viewMode === 'matrix' && matrixData && (
+      {viewMode === 'matrix' && matrixData && totalMappings > 0 && (
         <div className="glass-card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[800px]">
@@ -249,7 +286,7 @@ export default function CanTeachManager() {
                           <span className="text-slate-200 dark:text-dark-700 text-[10px]">—</span>
                         </td>
                       );
-                      const rc = getRoleConfig(cell.role);
+                      const rc = getTypeConfig(cell.eligibilityType);
                       return (
                         <td key={s._id} className="px-1 py-2 text-center">
                           <span className={`inline-flex items-center justify-center w-6 h-6 rounded-lg text-[9px] font-bold ${rc.color}`} title={`${rc.label} (P${cell.priority})`}>
@@ -266,14 +303,15 @@ export default function CanTeachManager() {
           <div className="flex items-center gap-4 px-4 py-2 border-t border-slate-200 dark:border-dark-700 text-[10px] text-slate-500 dark:text-dark-400">
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 dark:bg-emerald-500/20" /> Primary</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 dark:bg-blue-500/20" /> Secondary</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100 dark:bg-amber-500/20" /> Fallback</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100 dark:bg-amber-500/20" /> Substitute Only</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-100 dark:bg-purple-500/20" /> Replacement Only</span>
             <span>Numbers = priority (1–10)</span>
           </div>
         </div>
       )}
 
       {/* LIST VIEW */}
-      {viewMode === 'list' && (
+      {viewMode === 'list' && totalMappings > 0 && (
         <div className="glass-card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -281,7 +319,7 @@ export default function CanTeachManager() {
                 <tr className="table-header">
                   <th className="px-4 py-2.5 text-left text-xs">Teacher</th>
                   <th className="px-4 py-2.5 text-left text-xs">Subject</th>
-                  <th className="px-4 py-2.5 text-center text-xs">Role</th>
+                  <th className="px-4 py-2.5 text-center text-xs">Eligibility</th>
                   <th className="px-4 py-2.5 text-center text-xs">Priority</th>
                   <th className="px-4 py-2.5 text-left text-xs">Eligible Classes</th>
                   <th className="px-4 py-2.5 text-left text-xs">Streams</th>
@@ -294,7 +332,7 @@ export default function CanTeachManager() {
                 ) : filteredMappings.length === 0 ? (
                   <tr><td colSpan={7} className="text-center py-8 text-slate-400 dark:text-dark-500 text-sm">No mappings found. Use "Sync from Capabilities" or "Add Mapping".</td></tr>
                 ) : filteredMappings.map(m => {
-                  const rc = getRoleConfig(m.role);
+                  const rc = getTypeConfig(m.eligibilityType);
                   return (
                     <tr key={m._id} className="table-row">
                       <td className="px-4 py-2.5">
@@ -309,9 +347,9 @@ export default function CanTeachManager() {
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        <select value={m.role} onChange={e => updateMapping(m._id, { role: e.target.value })}
+                        <select value={m.eligibilityType} onChange={e => updateMapping(m._id, { eligibilityType: e.target.value })}
                           className={`text-xs px-2 py-1 rounded-lg font-medium border-0 cursor-pointer ${rc.color}`}>
-                          {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                          {ELIGIBILITY_TYPES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                         </select>
                       </td>
                       <td className="px-4 py-2.5 text-center">
@@ -354,7 +392,7 @@ export default function CanTeachManager() {
       )}
 
       {/* ADD MAPPING MODAL */}
-      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Add Can Teach Mapping" size="md">
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Add Eligibility Mapping" size="md">
         <div className="space-y-4">
           <div>
             <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1.5 block">Teacher *</label>
@@ -372,14 +410,40 @@ export default function CanTeachManager() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1.5 block">Role</label>
-              <select value={addForm.role} onChange={e => setAddForm({ ...addForm, role: e.target.value })} className="select-field text-sm">
-                {ROLES.map(r => <option key={r.value} value={r.value}>{r.icon} {r.label}</option>)}
+              <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1.5 block">Eligibility Type</label>
+              <select value={addForm.eligibilityType} onChange={e => setAddForm({ ...addForm, eligibilityType: e.target.value })} className="select-field text-sm">
+                {ELIGIBILITY_TYPES.map(r => <option key={r.value} value={r.value}>{r.icon} {r.label}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1.5 block">Priority (1–10)</label>
               <input type="number" min={1} max={10} value={addForm.priority} onChange={e => setAddForm({ ...addForm, priority: parseInt(e.target.value) || 5 })} className="input-field text-sm" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1.5 block">Eligible Classes (leave empty for all)</label>
+            <div className="border border-slate-200 dark:border-dark-700 rounded-xl max-h-32 overflow-y-auto p-2 space-y-1">
+              {classes.map(c => (
+                <label key={c._id} className="flex items-center gap-2 px-2 py-0.5 rounded hover:bg-slate-50 dark:hover:bg-dark-800 cursor-pointer text-xs">
+                  <input type="checkbox" checked={addForm.eligibleClasses.includes(c._id)}
+                    onChange={e => setAddForm(prev => ({
+                      ...prev,
+                      eligibleClasses: e.target.checked ? [...prev.eligibleClasses, c._id] : prev.eligibleClasses.filter(id => id !== c._id)
+                    }))}
+                    className="rounded border-slate-300 text-primary-500" />
+                  <span className="text-slate-700 dark:text-dark-200">{c.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1.5 block">Max Periods/Week</label>
+              <input type="number" min={0} value={addForm.maxPeriodsPerWeek} onChange={e => setAddForm({ ...addForm, maxPeriodsPerWeek: e.target.value })} className="input-field text-sm" placeholder="No limit" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1.5 block">Max Periods/Day</label>
+              <input type="number" min={0} value={addForm.maxPeriodsPerDay} onChange={e => setAddForm({ ...addForm, maxPeriodsPerDay: e.target.value })} className="input-field text-sm" placeholder="No limit" />
             </div>
           </div>
           <div>
@@ -396,7 +460,7 @@ export default function CanTeachManager() {
       </Modal>
 
       {/* BULK ASSIGN MODAL */}
-      <Modal isOpen={showBulkModal} onClose={() => setShowBulkModal(false)} title="Bulk Assign Can Teach" size="lg">
+      <Modal isOpen={showBulkModal} onClose={() => setShowBulkModal(false)} title="Bulk Assign Eligibility" size="lg">
         <div className="space-y-4">
           <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/30 text-xs text-blue-700 dark:text-blue-400">
             Select multiple teachers and subjects. A mapping will be created for each teacher-subject combination.
@@ -433,9 +497,9 @@ export default function CanTeachManager() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1.5 block">Role</label>
-              <select value={bulkRole} onChange={e => setBulkRole(e.target.value)} className="select-field text-sm">
-                {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1.5 block">Eligibility Type</label>
+              <select value={bulkEligibility} onChange={e => setBulkEligibility(e.target.value)} className="select-field text-sm">
+                {ELIGIBILITY_TYPES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </div>
             <div>

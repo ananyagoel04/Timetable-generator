@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Calendar, Users, BookOpen, Printer, Download, Filter, Settings2, X, AlertTriangle, CheckCircle, Loader2, UserMinus, RefreshCw, Building2, BarChart3, ClipboardList, DoorOpen, FileSpreadsheet } from 'lucide-react';
+import { Calendar, Users, BookOpen, Printer, Download, Filter, Settings2, X, AlertTriangle, CheckCircle, Loader2, UserMinus, RefreshCw, Building2, BarChart3, ClipboardList, DoorOpen, FileSpreadsheet, Shield, ExternalLink } from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Modal from '../components/ui/Modal';
@@ -35,6 +35,7 @@ export default function Reports() {
   const [auditFrom, setAuditFrom] = useState('');
   const [auditTo, setAuditTo] = useState('');
   const [auditModule, setAuditModule] = useState('');
+  const [readinessData, setReadinessData] = useState(null);
 
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printConfig, setPrintConfig] = useState({
@@ -113,6 +114,9 @@ export default function Reports() {
         if (selectedRoom) url += `${selectedTT ? '&' : '?'}roomId=${selectedRoom}`;
         const r = await api.get(url);
         setReportData(r.data?.data || r.data);
+      } else if (tab === 'readiness') {
+        const r = await api.get('/reports/readiness-audit');
+        setReadinessData(r.data?.data || r.data);
       }
     } catch (err) { toast.error(err.message || 'Failed to load report'); }
     finally { setLoading(false); }
@@ -120,7 +124,7 @@ export default function Reports() {
 
   useEffect(() => {
     if (tab === 'replacement') fetchSpecialReport();
-    else if (['workload', 'room-util', 'conflict', 'audit'].includes(tab)) fetchSpecialReport();
+    else if (['workload', 'room-util', 'conflict', 'audit', 'readiness'].includes(tab)) fetchSpecialReport();
     else if (tab === 'room-timetable' && selectedRoom) fetchSpecialReport();
     else if (selectedTT) fetchReport();
   }, [tab, selectedTT, selectedDay, selectedClass, selectedTeacher, selectedRoom]);
@@ -238,6 +242,7 @@ export default function Reports() {
     { id: 'room-util', label: 'Room Utilization', icon: Building2 },
     { id: 'conflict', label: 'Conflicts', icon: AlertTriangle },
     { id: 'audit', label: 'Audit Trail', icon: ClipboardList },
+    { id: 'readiness', label: 'Readiness', icon: Shield },
   ];
 
   const exportButtons = getExportButtons();
@@ -376,6 +381,8 @@ export default function Reports() {
         <AuditReport data={auditData} />
       ) : tab === 'room-timetable' ? (
         <RoomTimetableReport data={reportData} />
+      ) : tab === 'readiness' ? (
+        <ReadinessReport data={readinessData} />
       ) : !reportData ? (
         <div className="glass-card p-16 text-center text-slate-400 dark:text-dark-500">Select filters and generate a report</div>
       ) : tab === 'day-wise' ? (
@@ -798,6 +805,7 @@ function ReplacementReport({ data }) {
 function DayWiseReport({ data }) {
   if (!data?.report?.length) return <div className="glass-card p-12 text-center text-slate-400 dark:text-dark-500">No data for this day</div>;
   const summary = data.summary || {};
+  const maxPeriod = summary.totalSchedulablePeriods || 8;
   return (
     <div className="space-y-3">
       {/* Summary banner */}
@@ -807,7 +815,7 @@ function DayWiseReport({ data }) {
           <p className="text-[10px] text-slate-500 dark:text-dark-400">Classes</p>
         </div>
         <div className="glass-card p-4 text-center">
-          <p className="text-2xl font-bold text-primary-500">{summary.totalSchedulablePeriods || 8}</p>
+          <p className="text-2xl font-bold text-primary-500">{maxPeriod}</p>
           <p className="text-[10px] text-slate-500 dark:text-dark-400">Periods per Class</p>
         </div>
         <div className="glass-card p-4 text-center">
@@ -821,43 +829,66 @@ function DayWiseReport({ data }) {
       </div>
 
       <p className="text-sm text-slate-500 dark:text-dark-400">{data.day} — {data.classCount} classes</p>
-      {data.report.map(cr => (
-        <div key={cr.class._id} className="glass-card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-semibold text-slate-800 dark:text-dark-100">{cr.class.name}</p>
-            <div className="flex items-center gap-2">
-              <span className={`text-xs font-medium ${cr.coveragePercent >= 90 ? 'text-emerald-500' : cr.coveragePercent >= 70 ? 'text-amber-500' : 'text-red-500'}`}>
-                {cr.assignedPeriods}/{cr.totalSchedulablePeriods} ({cr.coveragePercent}%)
-              </span>
-              <div className="w-16 h-1.5 bg-slate-200 dark:bg-dark-700 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full ${cr.coveragePercent >= 90 ? 'bg-emerald-500' : cr.coveragePercent >= 70 ? 'bg-amber-500' : 'bg-red-500'}`}
-                  style={{ width: `${Math.min(100, cr.coveragePercent)}%` }} />
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {cr.periods.map((slot, i) => (
-              <div key={i} className="px-3 py-2 rounded-lg text-xs min-w-[80px] border"
-                style={{
-                  borderColor: slot.subject?.color ? `${slot.subject.color}40` : '#e2e8f0',
-                  background: slot.subject?.color ? `${slot.subject.color}12` : slot.type === 'reserved' ? '#fef3c7' : '#f8fafc'
-                }}>
-                <p className="font-medium" style={{ color: slot.subject?.color || '#64748b' }}>
-                  <span className="full-name">{slot.subject?.name || (slot.type === 'reserved' ? '☕ Break' : `P${slot.period}`)}</span>
-                  <span className="print-alias">{slot.subject?.shortName || slot.subject?.name?.slice(0,3) || '—'}</span>
-                </p>
-                {slot.teacher && (
-                  <p className="text-slate-500 dark:text-dark-400 text-[10px]">
-                    <span className="full-name">{slot.teacher.name}</span>
-                    <span className="print-alias">{slot.teacher.shortName || slot.teacher.printAlias || slot.teacher.name?.split(' ')[0]}</span>
-                  </p>
-                )}
-                {slot.room && <p className="text-slate-400 text-[10px]">{slot.room.name}</p>}
-              </div>
-            ))}
-          </div>
+
+      {/* Matrix table: rows=classes, cols=periods */}
+      <div className="glass-card overflow-hidden">
+        <div className="overflow-x-auto print-table-wrapper">
+          <table className="w-full min-w-[700px] print-table">
+            <thead>
+              <tr className="table-header">
+                <th className="p-3 text-left text-xs w-32">Class</th>
+                {Array.from({ length: maxPeriod }, (_, i) => i + 1).map(p => (
+                  <th key={p} className="p-3 text-center text-xs">P{p}</th>
+                ))}
+                <th className="p-3 text-center text-xs w-24">Coverage</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.report.map(cr => (
+                <tr key={cr.class._id} className="table-row">
+                  <td className="p-3 text-xs font-medium text-slate-800 dark:text-dark-100 whitespace-nowrap">{cr.class.name}</td>
+                  {Array.from({ length: maxPeriod }, (_, i) => i + 1).map(p => {
+                    const slot = cr.periods.find(s => s.period === p);
+                    if (!slot) {
+                      return <td key={p} className="p-2 text-center text-slate-300 dark:text-dark-600 text-xs">—</td>;
+                    }
+                    if (slot.type === 'reserved' && !slot.subject) {
+                      return <td key={p} className="p-2 text-center bg-amber-50 dark:bg-dark-800/30 text-amber-500 text-[10px]">Break</td>;
+                    }
+                    return (
+                      <td key={p} className="p-2 text-center" style={{ borderLeft: slot.subject?.color ? `3px solid ${slot.subject.color}` : undefined }}>
+                        <p className="text-xs font-medium text-slate-800 dark:text-dark-100">
+                          <span className="full-name">{slot.subject?.name || '—'}</span>
+                          <span className="print-alias">{slot.subject?.shortName || slot.subject?.name?.slice(0, 3) || '—'}</span>
+                        </p>
+                        {slot.teacher && (
+                          <p className="text-[10px] text-slate-500 dark:text-dark-400 mt-0.5">
+                            <span className="full-name">{slot.teacher.name}</span>
+                            <span className="print-alias">{slot.teacher.shortName || slot.teacher.name?.split(' ')[0]}</span>
+                          </p>
+                        )}
+                        {slot.room && <p className="text-[10px] text-slate-400 dark:text-dark-500">{slot.room.name}</p>}
+                      </td>
+                    );
+                  })}
+                  <td className="p-2 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <span className={`text-xs font-semibold ${cr.coveragePercent >= 90 ? 'text-emerald-500' : cr.coveragePercent >= 70 ? 'text-amber-500' : 'text-red-500'}`}>
+                        {cr.coveragePercent}%
+                      </span>
+                      <div className="w-12 h-1.5 bg-slate-200 dark:bg-dark-700 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${cr.coveragePercent >= 90 ? 'bg-emerald-500' : cr.coveragePercent >= 70 ? 'bg-amber-500' : 'bg-red-500'}`}
+                          style={{ width: `${Math.min(100, cr.coveragePercent)}%` }} />
+                      </div>
+                      <span className="text-[9px] text-slate-400">{cr.assignedPeriods}/{cr.totalSchedulablePeriods}</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      ))}
+      </div>
     </div>
   );
 }
@@ -911,6 +942,112 @@ function WeeklyGridReport({ data, maxPeriod, type }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// READINESS AUDIT REPORT
+// ═══════════════════════════════════════════════════════════════
+function ReadinessReport({ data }) {
+  if (!data) return <div className="glass-card p-12 text-center text-slate-400 dark:text-dark-500">Loading readiness audit...</div>;
+
+  const scoreColor = data.score >= 100 ? 'text-emerald-500' : data.score >= 75 ? 'text-amber-500' : 'text-red-500';
+  const scoreBg = data.score >= 100 ? 'from-emerald-500 to-teal-500' : data.score >= 75 ? 'from-amber-500 to-orange-500' : 'from-red-500 to-pink-500';
+
+  return (
+    <div className="space-y-4">
+      {/* Score Header */}
+      <div className="glass-card p-6 flex flex-col sm:flex-row items-center gap-6">
+        <div className="relative w-28 h-28 flex-shrink-0">
+          <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+              fill="none" stroke="currentColor" strokeWidth="2.5" className="text-slate-200 dark:text-dark-700" />
+            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+              fill="none" strokeWidth="2.5" strokeLinecap="round"
+              className={scoreColor}
+              strokeDasharray={`${data.score}, 100`} />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className={`text-2xl font-bold ${scoreColor}`}>{data.score}%</span>
+            <span className="text-[9px] text-slate-400 dark:text-dark-500">Ready</span>
+          </div>
+        </div>
+        <div className="text-center sm:text-left">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-dark-100">
+            {data.overallReady ? '✅ Ready to Generate' : '⚠️ Not Ready'}
+          </h3>
+          <p className="text-sm text-slate-500 dark:text-dark-400 mt-1">
+            {data.passCount} of {data.totalChecks} checks passed
+          </p>
+          {data.warnings?.length > 0 && (
+            <p className="text-xs text-amber-500 mt-1">{data.warnings.length} warning{data.warnings.length > 1 ? 's' : ''}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Checklist */}
+      <div className="space-y-2">
+        {data.checks?.map(check => (
+          <div key={check.key} className={`glass-card p-4 flex items-start gap-3 border-l-4 ${
+            check.pass ? 'border-l-emerald-500' : 'border-l-red-500'
+          }`}>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+              check.pass
+                ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500'
+                : 'bg-red-50 dark:bg-red-500/10 text-red-500'
+            }`}>
+              {check.pass ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-slate-800 dark:text-dark-100">{check.label}</p>
+                <div className="flex items-center gap-2">
+                  {check.count !== undefined && (
+                    <span className="text-xs text-slate-500 dark:text-dark-400 font-mono">{check.count}</span>
+                  )}
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                    check.pass
+                      ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400'
+                  }`}>
+                    {check.pass ? 'PASS' : 'FAIL'}
+                  </span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-dark-400 mt-0.5">{check.detail}</p>
+              {check.warnings?.length > 0 && (
+                <div className="mt-1.5 space-y-0.5">
+                  {check.warnings.map((w, i) => (
+                    <p key={i} className="text-[10px] text-amber-500 flex items-center gap-1">
+                      <AlertTriangle size={10} className="flex-shrink-0" />{w}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {check.link && !check.pass && (
+                <a href={check.link} className="inline-flex items-center gap-1 text-[10px] text-primary-500 hover:text-primary-400 mt-1.5 font-medium">
+                  <ExternalLink size={10} /> Fix this →
+                </a>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Warnings Summary */}
+      {data.warnings?.length > 0 && (
+        <div className="glass-card p-4 bg-amber-50/50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-2 flex items-center gap-1.5">
+            <AlertTriangle size={14} /> Warnings ({data.warnings.length})
+          </p>
+          <ul className="space-y-1">
+            {data.warnings.map((w, i) => (
+              <li key={i} className="text-[11px] text-amber-600 dark:text-amber-400/80">• {w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

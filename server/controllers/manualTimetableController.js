@@ -240,3 +240,22 @@ exports.getSuggestions = async (req, res, next) => {
     });
   } catch (err) { next(err); }
 };
+
+// POST /api/timetable/manual/:timetableId/bulk-assign
+exports.bulkAssign = async (req, res, next) => {
+  try {
+    const result = await manualService.bulkAssign({
+      timetableId: req.params.timetableId,
+      schoolId: req.schoolId,
+      sessionId: req.sessionId,
+      userId: req.user._id,
+      assignment: req.body
+    });
+    res.json({
+      success: true,
+      data: result,
+      message: `Bulk assignment completed: ${result.summary.created} created, ${result.summary.conflicts} conflicts`,
+      error: null
+    });
+  } catch (err) { next(err); }
+};

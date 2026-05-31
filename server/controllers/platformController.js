@@ -32,20 +32,120 @@ exports.getSchools = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// POST /api/platform/schools — create a new school
+/**
+ * POST /api/platform/schools — create a new school with admin user and session.
+ * 
+ * This is the unified endpoint for creating any new school.
+ * Creates: School + AcademicSession + Admin User (if email provided).
+ * Does NOT create: teachers, classes, subjects, rooms, requirements, timetables.
+ * 
+ * Payload:
+ * {
+ *   name: "School Name",
+ *   code: "SCH001",
+ *   address: "...",
+ *   phone: "...",
+ *   email: "school@example.com",
+ *   adminName: "Admin Name",
+ *   adminEmail: "admin@school.com",
+ *   adminPassword: "password123",
+ *   session: { name: "2026-27", startDate: "...", endDate: "..." }
+ * }
+ */
 exports.createSchool = async (req, res, next) => {
   try {
-    const school = await School.create(req.body);
-    // Auto-create a default academic session
-    await AcademicSession.create({
+    const { adminName, adminEmail, adminPassword, session: sessionData, ...schoolData } = req.body;
+
+    // Create school
+    const school = await School.create(schoolData);
+
+    // Create academic session (use provided session data or defaults)
+    const sessionName = sessionData?.name || `${new Date().getFullYear()}-${(new Date().getFullYear() + 1).toString().slice(2)}`;
+    const startDate = sessionData?.startDate || new Date(`${new Date().getFullYear()}-04-01`);
+    const endDate = sessionData?.endDate || new Date(`${new Date().getFullYear() + 1}-03-31`);
+
+    const session = await AcademicSession.create({
       school: school._id,
-      name: `${new Date().getFullYear()}-${(new Date().getFullYear() + 1).toString().slice(2)}`,
-      startDate: new Date(`${new Date().getFullYear()}-04-01`),
-      endDate: new Date(`${new Date().getFullYear() + 1}-03-31`),
+      name: sessionName,
+      startDate,
+      endDate,
       isCurrent: true,
       status: 'active'
     });
-    res.status(201).json({ success: true, data: school });
+
+    let adminResult = null;
+
+    // Create school admin user if email provided
+    if (adminEmail) {
+      // Check for duplicate
+      const existing = await User.findOne({ email: adminEmail.toLowerCase() });
+      if (existing) {
+        return res.status(400).json({ success: false, error: `Admin email "${adminEmail}" already exists. School was created but admin user was not.`, data: { school, session } });
+      }
+
+      // Generate password if not provided
+      const crypto = require('crypto');
+      const tempPassword = adminPassword || crypto.randomBytes(6).toString('base64url').slice(0, 12);
+
+      const allPermissions = [
+        'view_timetable', 'generate_timetable', 'edit_setup', 'manage_teachers',
+        'manage_rules', 'approve_substitutions', 'publish_timetable', 'view_audit',
+        'manage_users', 'manage_school', 'export_reports', 'edit_timetable',
+        'manage_absences', 'manage_replacements'
+      ];
+
+      const adminUser = new User({
+        name: adminName || 'School Admin',
+        email: adminEmail.toLowerCase(),
+        password: tempPassword,
+        role: 'school_admin',
+        isActive: true,
+        activeSchool: school._id,
+        activeSession: session._id,
+        schools: [{
+          school: school._id,
+          role: 'school_admin',
+          permissions: allPermissions,
+          isActive: true
+        }]
+      });
+      await adminUser.save();
+
+      adminResult = {
+        _id: adminUser._id,
+        name: adminUser.name,
+        email: adminUser.email,
+        tempPassword: tempPassword,
+        role: 'school_admin'
+      };
+
+      // Audit log
+      await AuditLog.create({
+        school: school._id,
+        action: 'user_create',
+        entityType: 'user',
+        entityId: adminUser._id,
+        source: 'platform',
+        user: req.user?._id,
+        newValue: { email: adminUser.email, role: 'school_admin', schoolName: school.name }
+      });
+    }
+
+    await AuditLog.create({
+      school: school._id,
+      action: 'school_create',
+      entityType: 'school',
+      entityId: school._id,
+      source: 'platform',
+      user: req.user?._id,
+      newValue: { name: school.name, code: school.code, hasAdmin: !!adminResult }
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { school, session, admin: adminResult },
+      message: 'School created successfully'
+    });
   } catch (err) { next(err); }
 };
 

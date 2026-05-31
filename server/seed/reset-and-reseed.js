@@ -17,6 +17,7 @@ const Subject = require('../models/Subject');
 const Teacher = require('../models/Teacher');
 const Room = require('../models/Room');
 const SubjectRequirement = require('../models/SubjectRequirement');
+const ClassSubjectMapping = require('../models/ClassSubjectMapping');
 const PeriodStructure = require('../models/PeriodStructure');
 const CanTeach = require('../models/CanTeach');
 const LessonBlock = require('../models/LessonBlock');
@@ -46,7 +47,7 @@ async function resetAndReseed() {
   // ── STEP 1: Drop all data collections ──
   console.log('🗑️  Dropping all data collections...');
   const collections = [
-    LessonBlock, GeneratedTimetable, SubjectRequirement, CanTeach,
+    LessonBlock, GeneratedTimetable, SubjectRequirement, ClassSubjectMapping, CanTeach,
     Absence, Substitution, ConflictLog, ManualOverride, TimetableSnapshot,
     Notification, AuditLog, SubjectCombinationRule, ReservedPeriodRule,
     CustomRule, SoftPreference, PeriodStructure,
@@ -96,58 +97,66 @@ async function resetAndReseed() {
   console.log('\n👤 Creating users...');
   const adminUser = await User.create({
     name: 'Dr. Ananya Goel',
-    email: 'admin@dps.edu',
+    email: 'admin@divinewisdom.edu.in',
     password: 'admin123',
     role: 'school_admin',
     isActive: true,
     activeSchool: school._id,
     activeSession: session._id,
-    schools: [{ school: school._id, role: 'school_owner', isPrimary: true, isActive: true,
-      permissions: ['view_timetable','edit_timetable','generate_timetable','manage_teachers',
-        'edit_setup','manage_absences','approve_substitutions',
-        'manage_replacements','export_reports','view_audit','manage_users',
-        'manage_rules','manage_school','publish_timetable'] }]
+    schools: [{
+      school: school._id, role: 'school_owner', isPrimary: true, isActive: true,
+      permissions: ['view_timetable', 'edit_timetable', 'generate_timetable', 'manage_teachers',
+        'edit_setup', 'manage_absences', 'approve_substitutions',
+        'manage_replacements', 'export_reports', 'view_audit', 'manage_users',
+        'manage_rules', 'manage_school', 'publish_timetable']
+    }]
   });
   console.log(`   ✓ Admin: ${adminUser.email}`);
 
   const principalUser = await User.create({
     name: 'Mrs. Sudha Raghavan',
-    email: 'principal@dps.edu',
+    email: 'principal@divinewisdom.edu.in',
     password: 'admin123',
     role: 'principal',
     isActive: true,
     activeSchool: school._id,
     activeSession: session._id,
-    schools: [{ school: school._id, role: 'school_admin', isPrimary: true, isActive: true,
-      permissions: ['view_timetable','manage_teachers','edit_setup',
-        'export_reports','view_audit'] }]
+    schools: [{
+      school: school._id, role: 'school_admin', isPrimary: true, isActive: true,
+      permissions: ['view_timetable', 'manage_teachers', 'edit_setup',
+        'export_reports', 'view_audit']
+    }]
   });
   console.log(`   ✓ Principal: ${principalUser.email}`);
 
   const ttManager = await User.create({
     name: 'Mr. Rajan Srivastava',
-    email: 'timetable@dps.edu',
+    email: 'timetable@divinewisdom.edu.in',
     password: 'admin123',
     role: 'timetable_manager',
     isActive: true,
     activeSchool: school._id,
     activeSession: session._id,
-    schools: [{ school: school._id, role: 'timetable_manager', isPrimary: true, isActive: true,
-      permissions: ['view_timetable','edit_timetable','generate_timetable','manage_absences',
-        'approve_substitutions','manage_replacements','export_reports','manage_rules','publish_timetable'] }]
+    schools: [{
+      school: school._id, role: 'timetable_manager', isPrimary: true, isActive: true,
+      permissions: ['view_timetable', 'edit_timetable', 'generate_timetable', 'manage_absences',
+        'approve_substitutions', 'manage_replacements', 'export_reports', 'manage_rules', 'publish_timetable']
+    }]
   });
   console.log(`   ✓ TT Manager: ${ttManager.email}`);
 
   const teacherUser = await User.create({
     name: 'Ms. Priya Sharma',
-    email: 'priya.sharma@dps.edu',
+    email: 'priya.sharma@divinewisdom.edu.in',
     password: 'admin123',
     role: 'teacher',
     isActive: true,
     activeSchool: school._id,
     activeSession: session._id,
-    schools: [{ school: school._id, role: 'teacher', isPrimary: true, isActive: true,
-      permissions: ['view_timetable'] }]
+    schools: [{
+      school: school._id, role: 'teacher', isPrimary: true, isActive: true,
+      permissions: ['view_timetable']
+    }]
   });
   console.log(`   ✓ Teacher: ${teacherUser.email}`);
 
@@ -399,6 +408,44 @@ async function resetAndReseed() {
   }
   console.log(`   ✓ ${reqCount} subject requirements created`);
 
+  // ── STEP 11b: Class-Subject Mappings (auto-generate from requirements) ──
+  console.log('\n📎 Creating class-subject mappings...');
+  let csmCount = 0;
+  const csmSeen = new Set();
+  for (const cls of classesCreated) {
+    const grade = cls.grade;
+    const stream = cls.stream;
+    let subjectsForClass = [];
+    if (grade <= 5) {
+      subjectsForClass = ['ENG','HIN','MAT','SCI','SST','PE','ART','MUS','MS','LIB','CLUB','GAME'];
+    } else if (grade <= 8) {
+      subjectsForClass = ['ENG','HIN','MAT','SCI','SST','PE','ART','MUS','MS','SLAB','CLAB','LIB','CLUB'];
+    } else if (grade <= 10) {
+      subjectsForClass = ['ENG','HIN','MAT','SCI','SST','PE','SLAB','CLAB','LIB','CLUB'];
+    } else if (stream === 'science') {
+      subjectsForClass = ['ENG','PHY','CHM','MAT','BIO','CS','PE','SLAB'];
+    } else if (stream === 'commerce') {
+      subjectsForClass = ['ENG','ACC','BS','ECO','MAT','CS','PE','LIB','CLUB'];
+    } else {
+      subjectsForClass = ['ENG','HIN','HIS','POL','ECO','SST','PE','LIB','CLUB'];
+    }
+    for (const code of subjectsForClass) {
+      if (!subjectMap[code]) continue;
+      const key = `${cls._id}_${subjectMap[code]}`;
+      if (csmSeen.has(key)) continue;
+      csmSeen.add(key);
+      await ClassSubjectMapping.create({
+        ...scope, class: cls._id, subject: subjectMap[code],
+        isActive: true, periodsPerWeek: 0, // actual periods set in SubjectRequirement
+        requiresLab: ['SLAB','CLAB'].includes(code),
+        requiredRoomType: ['SLAB'].includes(code) ? 'lab' : ['CLAB'].includes(code) ? 'computer_lab' : null,
+        allowDoublePeriod: ['MAT','SCI','PHY','CHM','BIO','SLAB','CLAB'].includes(code)
+      });
+      csmCount++;
+    }
+  }
+  console.log(`   ✓ ${csmCount} class-subject mappings created`);
+
   // ── STEP 12: CanTeach Mappings ──
   console.log('\n🔗 Creating CanTeach mappings...');
   let canTeachCount = 0;
@@ -407,7 +454,7 @@ async function resetAndReseed() {
       if (!cap.subject) continue;
       await CanTeach.create({
         ...scope, teacher: teacher._id, subject: cap.subject,
-        role: 'primary', priority: 8, eligibleClasses: [], eligibleStreams: [],
+        eligibilityType: 'primary', priority: 8, eligibleClasses: [], eligibleStreams: [],
         eligibleSections: [], isActive: true
       });
       canTeachCount++;
@@ -449,14 +496,15 @@ async function resetAndReseed() {
   console.log(`  Teachers:      ${teachersCreated.length}`);
   console.log(`  Rooms:         ${roomDefs.length}`);
   console.log(`  Requirements:  ${reqCount}`);
+  console.log(`  ClassSubjMap:  ${csmCount}`);
   console.log(`  CanTeach:      ${canTeachCount}`);
   console.log(`  Audit Logs:    ${auditActions.length}`);
   console.log('═══════════════════════════════════════════════════════');
   console.log('\n  Login credentials:');
-  console.log('  admin@dps.edu / admin123 (School Admin)');
-  console.log('  principal@dps.edu / admin123 (Principal)');
-  console.log('  timetable@dps.edu / admin123 (TT Manager)');
-  console.log('  priya.sharma@dps.edu / admin123 (Teacher)');
+  console.log('  admin@divinewisdom.edu.in / admin123 (School Admin)');
+  console.log('  principal@divinewisdom.edu.in / admin123 (Principal)');
+  console.log('  timetable@divinewisdom.edu.in / admin123 (TT Manager)');
+  console.log('  priya.sharma@divinewisdom.edu.in / admin123 (Teacher)');
   console.log('  dev@timecraft.io / admin123 (Platform Dev)\n');
 
   await mongoose.connection.close();

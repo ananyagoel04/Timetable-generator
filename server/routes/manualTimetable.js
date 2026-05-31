@@ -45,6 +45,9 @@ router.post('/:timetableId/publish', authorize('publish_timetable'), mc.publish)
 // Full validation
 router.post('/:timetableId/validate-full', authorize('edit_timetable'), mc.validateFull);
 
+// Bulk assign lessons across multiple days
+router.post('/:timetableId/bulk-assign', authorize('edit_timetable'), mc.bulkAssign);
+
 // Get suggestions (teachers, rooms, periods, progress)
 router.get('/:timetableId/suggestions', authorize('view_timetable'), mc.getSuggestions);
 

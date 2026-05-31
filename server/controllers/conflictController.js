@@ -6,8 +6,8 @@ const TimetableEditor = require('../services/timetableEditor');
 const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
 
-const getScope = async () => {
-  const school = await School.findOne();
+const getScope = async (req) => {
+  const school = req.schoolId ? await School.findById(req.schoolId) : null;
   const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
   return { schoolId: school?._id, sessionId: session?._id };
 };

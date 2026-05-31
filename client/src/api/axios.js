@@ -8,20 +8,35 @@ const api = axios.create({
 // ── Logout callback (set by AuthContext to avoid window.location.href reload) ──
 let _logoutCallback = null;
 let _is401Handling = false;
+let _isPlatformUser = false;
 
 export function setLogoutCallback(fn) {
   _logoutCallback = fn;
 }
 
-// Attach auth token if present
+export function setIsPlatformUser(val) {
+  _isPlatformUser = val;
+}
+
+// Attach auth token and school/session context
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('tc_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  // Attach active school/session context
+  
+  // Attach school/session context
   const school = localStorage.getItem('tc_school');
   const session = localStorage.getItem('tc_session');
-  if (school) config.headers['X-School-Id'] = school;
-  if (session) config.headers['X-Session-Id'] = session;
+  
+  if (school) {
+    // Platform users use X-Selected-School-Id header
+    // School users use X-School-Id header
+    // Both are handled — backend reads both
+    config.headers['X-School-Id'] = school;
+    config.headers['X-Selected-School-Id'] = school;
+  }
+  if (session) {
+    config.headers['X-Session-Id'] = session;
+  }
   return config;
 });
 
@@ -43,6 +58,8 @@ api.interceptors.response.use(
       localStorage.removeItem('tc_token');
       localStorage.removeItem('tc_school');
       localStorage.removeItem('tc_session');
+      localStorage.removeItem('tc_session_name');
+      localStorage.removeItem('tc_school_name');
       if (_logoutCallback) {
         _logoutCallback();
       }

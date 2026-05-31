@@ -1,23 +1,35 @@
 const SubjectRequirement = require('../models/SubjectRequirement');
+const ClassSubjectMapping = require('../models/ClassSubjectMapping');
 const Teacher = require('../models/Teacher');
 const Class = require('../models/Class');
 const Subject = require('../models/Subject');
 const PeriodStructure = require('../models/PeriodStructure');
-const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
 
-const getScope = async () => {
-  const school = await School.findOne();
-  const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
-  return { school: school?._id, session: session?._id };
+/**
+ * Scoping helper — uses middleware-injected schoolId/sessionId.
+ * Falls back to finding current session if sessionId not provided.
+ */
+const getScope = async (req) => {
+  const schoolId = req.schoolId;
+  const sessionId = req.sessionId;
+  if (!sessionId && schoolId) {
+    const s = await AcademicSession.findOne({ school: schoolId, isCurrent: true });
+    return { school: schoolId, session: s?._id };
+  }
+  return { school: schoolId, session: sessionId };
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// SUBJECT REQUIREMENTS (teacher assignment / periods per week)
+// ═══════════════════════════════════════════════════════════════════
 
 /**
  * GET /api/requirements - Get all requirements with full population
  */
 exports.getAll = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const filter = { school: scope.school, session: scope.session };
     if (req.query.class) filter.class = req.query.class;
     if (req.query.subject) filter.subject = req.query.subject;
@@ -40,7 +52,7 @@ exports.getAll = async (req, res, next) => {
  */
 exports.create = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const req_data = { ...req.body, school: scope.school, session: scope.session };
     const existing = await SubjectRequirement.findOne({
       school: scope.school, session: scope.session,
@@ -89,7 +101,7 @@ exports.remove = async (req, res, next) => {
  */
 exports.bulkSave = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const { requirements } = req.body;
     if (!requirements || !Array.isArray(requirements)) {
       return res.status(400).json({ success: false, error: 'requirements array is required' });
@@ -126,7 +138,7 @@ exports.bulkSave = async (req, res, next) => {
  */
 exports.clone = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const { sourceClass, targetClasses } = req.body;
 
     if (!sourceClass || !targetClasses || !targetClasses.length) {
@@ -184,7 +196,7 @@ exports.clone = async (req, res, next) => {
  */
 exports.workloadSummary = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
 
     const teachers = await Teacher.find({ school: scope.school, session: scope.session, status: 'active' })
       .select('name shortName department maxPeriodsPerDay maxPeriodsPerWeek');
@@ -225,7 +237,7 @@ exports.workloadSummary = async (req, res, next) => {
  */
 exports.balancingSuggestions = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const reqs = await SubjectRequirement.find({ school: scope.school, session: scope.session, isActive: true })
       .populate('class', 'name')
       .populate('subject', 'name code')
@@ -251,13 +263,11 @@ exports.balancingSuggestions = async (req, res, next) => {
     Object.values(workloadMap).forEach(entry => {
       const max = entry.teacher.maxPeriodsPerWeek || 30;
       if (entry.totalPeriods > max) {
-        // Find possible redistribution targets
         const excessPeriods = entry.totalPeriods - max;
         const candidates = [];
 
         entry.reqs.forEach(r => {
           const subjectId = r.subject?._id?.toString();
-          // Find other teachers who can teach this subject
           Object.values(workloadMap).forEach(other => {
             if (other.teacher._id.toString() === entry.teacher._id.toString()) return;
             const canTeach = other.teacher.capabilities?.some(c =>
@@ -290,28 +300,314 @@ exports.balancingSuggestions = async (req, res, next) => {
       }
     });
 
-    // Find unassigned subjects
+    // Find unassigned core subjects
     const classes = await Class.find({ school: scope.school, session: scope.session, isActive: true });
     const subjects = await Subject.find({ school: scope.school, session: scope.session, isActive: true });
 
+    // Check ClassSubjectMapping for applicable subjects
+    const mappings = await ClassSubjectMapping.find({ school: scope.school, session: scope.session, isActive: true });
+    const mappingSet = new Set(mappings.map(m => `${m.class}_${m.subject}`));
+
     classes.forEach(cls => {
       subjects.forEach(sub => {
-        const hasReq = reqs.some(r =>
-          r.class?._id?.toString() === cls._id.toString() &&
-          r.subject?._id?.toString() === sub._id.toString()
-        );
-        if (!hasReq && sub.category === 'core') {
-          suggestions.push({
-            type: 'unassigned',
-            severity: 'info',
-            message: `${sub.name} is not assigned to ${cls.name}`,
-            class: cls.name,
-            subject: sub.name
-          });
+        const key = `${cls._id}_${sub._id}`;
+        // Only flag if subject IS mapped to this class but has no requirement
+        if (mappingSet.has(key)) {
+          const hasReq = reqs.some(r =>
+            r.class?._id?.toString() === cls._id.toString() &&
+            r.subject?._id?.toString() === sub._id.toString()
+          );
+          if (!hasReq) {
+            suggestions.push({
+              type: 'unassigned',
+              severity: 'info',
+              message: `${sub.name} is mapped to ${cls.name} but has no teacher assigned`,
+              class: cls.name,
+              subject: sub.name
+            });
+          }
         }
       });
     });
 
     res.json({ success: true, count: suggestions.length, data: suggestions });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// CLASS-SUBJECT MAPPINGS (which subjects are taught in which class)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/requirements/class-subjects - List all class-subject mappings
+ */
+exports.listClassSubjects = async (req, res, next) => {
+  try {
+    const scope = await getScope(req);
+    const filter = { school: scope.school, session: scope.session };
+    if (req.query.class) filter.class = req.query.class;
+    if (req.query.subject) filter.subject = req.query.subject;
+    if (req.query.activeOnly === 'true') filter.isActive = true;
+
+    const mappings = await ClassSubjectMapping.find(filter)
+      .populate('class', 'name grade section stream')
+      .populate('subject', 'name code color type category defaultPeriodsPerWeek canBeDoubled')
+      .sort({ 'class': 1, 'subject': 1 });
+
+    res.json({ success: true, count: mappings.length, data: mappings });
+  } catch (err) { next(err); }
+};
+
+/**
+ * GET /api/requirements/classes/:classId/subjects - Subjects for a specific class
+ */
+exports.getClassSubjects = async (req, res, next) => {
+  try {
+    const scope = await getScope(req);
+    const mappings = await ClassSubjectMapping.find({
+      school: scope.school, session: scope.session,
+      class: req.params.classId, isActive: true
+    })
+      .populate('subject', 'name code color type category defaultPeriodsPerWeek canBeDoubled')
+      .sort({ 'subject.name': 1 });
+
+    res.json({ success: true, count: mappings.length, data: mappings });
+  } catch (err) { next(err); }
+};
+
+/**
+ * POST /api/requirements/class-subjects - Create single mapping
+ */
+exports.createClassSubject = async (req, res, next) => {
+  try {
+    const scope = await getScope(req);
+    const data = { ...req.body, school: scope.school, session: scope.session };
+
+    const existing = await ClassSubjectMapping.findOne({
+      school: scope.school, session: scope.session,
+      class: data.class, subject: data.subject
+    });
+
+    if (existing) {
+      Object.assign(existing, data);
+      await existing.save();
+      const populated = await ClassSubjectMapping.findById(existing._id)
+        .populate('class', 'name grade section stream')
+        .populate('subject', 'name code color type');
+      return res.json({ success: true, data: populated, updated: true });
+    }
+
+    const created = await ClassSubjectMapping.create(data);
+    const populated = await ClassSubjectMapping.findById(created._id)
+      .populate('class', 'name grade section stream')
+      .populate('subject', 'name code color type');
+    res.status(201).json({ success: true, data: populated });
+  } catch (err) { next(err); }
+};
+
+/**
+ * PUT /api/requirements/class-subjects/:id - Update mapping
+ */
+exports.updateClassSubject = async (req, res, next) => {
+  try {
+    const updated = await ClassSubjectMapping.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+      .populate('class', 'name grade section stream')
+      .populate('subject', 'name code color type');
+    if (!updated) return res.status(404).json({ success: false, error: 'Not found' });
+    res.json({ success: true, data: updated });
+  } catch (err) { next(err); }
+};
+
+/**
+ * DELETE /api/requirements/class-subjects/:id
+ */
+exports.deleteClassSubject = async (req, res, next) => {
+  try {
+    await ClassSubjectMapping.findByIdAndDelete(req.params.id);
+    res.json({ success: true, data: {} });
+  } catch (err) { next(err); }
+};
+
+/**
+ * POST /api/requirements/class-subjects/bulk - Bulk upsert class-subject mappings
+ * Body: { mappings: [{ class, subject, periodsPerWeek, ... }] }
+ */
+exports.bulkClassSubjects = async (req, res, next) => {
+  try {
+    const scope = await getScope(req);
+    const { mappings } = req.body;
+    if (!Array.isArray(mappings) || mappings.length === 0) {
+      return res.status(400).json({ success: false, error: 'mappings array required' });
+    }
+
+    let created = 0, updated = 0, skipped = 0;
+
+    for (const m of mappings) {
+      if (!m.class || !m.subject) { skipped++; continue; }
+
+      const filter = {
+        school: scope.school, session: scope.session,
+        class: m.class, subject: m.subject
+      };
+
+      const updateData = {
+        ...m,
+        school: scope.school,
+        session: scope.session,
+        isActive: m.isActive !== false
+      };
+
+      const result = await ClassSubjectMapping.findOneAndUpdate(filter, updateData, {
+        upsert: true, new: true, setDefaultsOnInsert: true
+      });
+      if (result.createdAt.getTime() === result.updatedAt.getTime()) created++;
+      else updated++;
+    }
+
+    res.json({ success: true, created, updated, skipped });
+  } catch (err) { next(err); }
+};
+
+/**
+ * POST /api/requirements/class-subjects/generate - Auto-generate mappings from existing SubjectRequirements
+ * Creates ClassSubjectMapping for every class+subject combo found in SubjectRequirements
+ */
+exports.generateClassSubjects = async (req, res, next) => {
+  try {
+    const scope = await getScope(req);
+    const reqs = await SubjectRequirement.find({ school: scope.school, session: scope.session, isActive: true });
+
+    let created = 0, existing = 0;
+
+    for (const r of reqs) {
+      const exists = await ClassSubjectMapping.findOne({
+        school: scope.school, session: scope.session,
+        class: r.class, subject: r.subject
+      });
+
+      if (exists) { existing++; continue; }
+
+      await ClassSubjectMapping.create({
+        school: scope.school, session: scope.session,
+        class: r.class, subject: r.subject,
+        isActive: true,
+        periodsPerWeek: r.periodsPerWeek || 0,
+        allowDoublePeriod: r.allowDoublePeriod || false,
+        requiresLab: r.requiresLab || false
+      });
+      created++;
+    }
+
+    res.json({ success: true, created, existing, total: created + existing });
+  } catch (err) { next(err); }
+};
+
+/**
+ * GET /api/requirements/validation - Readiness checks for timetable generation
+ */
+exports.validation = async (req, res, next) => {
+  try {
+    const scope = await getScope(req);
+    const CanTeach = require('../models/CanTeach');
+    const issues = [];
+
+    // Load data
+    const [classes, subjects, teachers, reqs, canTeachMappings, classSubjects] = await Promise.all([
+      Class.find({ school: scope.school, session: scope.session, isActive: true }),
+      Subject.find({ school: scope.school, session: scope.session, isActive: true }),
+      Teacher.find({ school: scope.school, session: scope.session, status: 'active' }),
+      SubjectRequirement.find({ school: scope.school, session: scope.session, isActive: true })
+        .populate('teacher', 'name')
+        .populate('class', 'name grade section stream')
+        .populate('subject', 'name code'),
+      CanTeach.find({ school: scope.school, session: scope.session, isActive: true }),
+      ClassSubjectMapping.find({ school: scope.school, session: scope.session, isActive: true })
+    ]);
+
+    // 1. Classes without any subject mappings
+    for (const cls of classes) {
+      const hasMappings = classSubjects.some(m => m.class.toString() === cls._id.toString());
+      if (!hasMappings) {
+        issues.push({
+          type: 'no_subjects',
+          severity: 'error',
+          message: `${cls.name} has no subject mappings`,
+          classId: cls._id, className: cls.name
+        });
+      }
+    }
+
+    // 2. Requirements without teacher assignment
+    for (const r of reqs) {
+      if (!r.teacher) {
+        issues.push({
+          type: 'no_teacher',
+          severity: 'error',
+          message: `${r.subject?.name} for ${r.class?.name} has no teacher assigned`,
+          classId: r.class?._id, subjectId: r.subject?._id
+        });
+      }
+    }
+
+    // 3. Teacher assigned in requirement but NOT eligible via CanTeach
+    for (const r of reqs) {
+      if (!r.teacher) continue;
+      const eligible = canTeachMappings.some(ct =>
+        ct.teacher.toString() === r.teacher._id.toString() &&
+        ct.subject.toString() === r.subject._id.toString() &&
+        (ct.eligibleClasses.length === 0 || ct.eligibleClasses.some(c => c.toString() === r.class._id.toString()))
+      );
+      if (!eligible) {
+        issues.push({
+          type: 'ineligible_teacher',
+          severity: 'warning',
+          message: `${r.teacher?.name} is assigned to teach ${r.subject?.name} for ${r.class?.name} but has no CanTeach mapping`,
+          classId: r.class?._id, subjectId: r.subject?._id, teacherId: r.teacher?._id
+        });
+      }
+    }
+
+    // 4. Overloaded teachers
+    const teacherLoads = {};
+    reqs.forEach(r => {
+      if (!r.teacher) return;
+      const tid = r.teacher._id.toString();
+      teacherLoads[tid] = (teacherLoads[tid] || 0) + (r.periodsPerWeek || 0);
+    });
+    for (const t of teachers) {
+      const load = teacherLoads[t._id.toString()] || 0;
+      const max = t.maxPeriodsPerWeek || 30;
+      if (load > max) {
+        issues.push({
+          type: 'overloaded',
+          severity: 'error',
+          message: `${t.name} is overloaded: ${load} periods assigned, max is ${max}`,
+          teacherId: t._id, teacherName: t.name, load, max
+        });
+      }
+    }
+
+    // 5. Subjects with 0 periods
+    for (const r of reqs) {
+      if ((r.periodsPerWeek || 0) === 0) {
+        issues.push({
+          type: 'zero_periods',
+          severity: 'info',
+          message: `${r.subject?.name} for ${r.class?.name} has 0 periods per week`,
+          classId: r.class?._id, subjectId: r.subject?._id
+        });
+      }
+    }
+
+    const errorCount = issues.filter(i => i.severity === 'error').length;
+    const warningCount = issues.filter(i => i.severity === 'warning').length;
+    const infoCount = issues.filter(i => i.severity === 'info').length;
+
+    res.json({
+      success: true,
+      ready: errorCount === 0,
+      summary: { errors: errorCount, warnings: warningCount, info: infoCount },
+      issues
+    });
   } catch (err) { next(err); }
 };

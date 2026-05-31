@@ -4,25 +4,49 @@ const PeriodStructure = require('../models/PeriodStructure');
 const SoftPreference = require('../models/SoftPreference');
 const Class = require('../models/Class');
 
-const getScope = async () => {
-  const school = await School.findOne();
-  const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
+/**
+ * Get school/session scope from request middleware.
+ * CRITICAL FIX: Previously did School.findOne() with no filter,
+ * which returned the first school in DB regardless of user context.
+ * Now uses req.schoolId/req.sessionId set by scopeToSchool middleware.
+ */
+const getScope = async (req) => {
+  const schoolId = req.schoolId;
+  const sessionId = req.sessionId;
+  
+  let school = null;
+  let session = null;
+  
+  if (schoolId) {
+    school = await School.findById(schoolId);
+  }
+  if (sessionId) {
+    session = await AcademicSession.findById(sessionId);
+  } else if (school) {
+    // Fallback: find current session for school
+    session = await AcademicSession.findOne({ school: school._id, isCurrent: true });
+  }
+  
   return { school, session };
 };
 
 // --- School ---
 exports.getSchool = async (req, res, next) => {
   try {
-    let school = await School.findOne();
-    if (!school) school = await School.create({ name: 'My School', code: 'SCH001' });
+    const { school } = await getScope(req);
+    if (!school) {
+      return res.status(404).json({ success: false, error: 'No school found for current context' });
+    }
     res.json({ success: true, data: school });
   } catch (err) { next(err); }
 };
 
 exports.updateSchool = async (req, res, next) => {
   try {
-    let school = await School.findOne();
-    if (!school) school = await School.create({ name: 'My School', code: 'SCH001' });
+    const { school } = await getScope(req);
+    if (!school) {
+      return res.status(404).json({ success: false, error: 'No school found for current context' });
+    }
     Object.assign(school, req.body);
     await school.save();
     res.json({ success: true, data: school });
@@ -32,15 +56,17 @@ exports.updateSchool = async (req, res, next) => {
 // --- Academic Session ---
 exports.getSessions = async (req, res, next) => {
   try {
-    const { school } = await getScope();
-    const sessions = await AcademicSession.find({ school: school?._id }).sort({ startDate: -1 });
+    const { school } = await getScope(req);
+    if (!school) return res.status(400).json({ success: false, error: 'School context required' });
+    const sessions = await AcademicSession.find({ school: school._id }).sort({ startDate: -1 });
     res.json({ success: true, data: sessions });
   } catch (err) { next(err); }
 };
 
 exports.createSession = async (req, res, next) => {
   try {
-    const { school } = await getScope();
+    const { school } = await getScope(req);
+    if (!school) return res.status(400).json({ success: false, error: 'School context required' });
     const session = await AcademicSession.create({ ...req.body, school: school._id });
     res.status(201).json({ success: true, data: session });
   } catch (err) { next(err); }
@@ -48,17 +74,138 @@ exports.createSession = async (req, res, next) => {
 
 exports.updateSession = async (req, res, next) => {
   try {
-    const session = await AcademicSession.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const session = await AcademicSession.findById(req.params.id);
     if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+    // Security: verify session belongs to current school
+    if (req.schoolId && session.school.toString() !== req.schoolId.toString()) {
+      return res.status(403).json({ success: false, error: 'Session does not belong to your school' });
+    }
+    Object.assign(session, req.body);
+    await session.save();
     res.json({ success: true, data: session });
+  } catch (err) { next(err); }
+};
+
+exports.activateSession = async (req, res, next) => {
+  try {
+    const session = await AcademicSession.findById(req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+    // Security: verify session belongs to current school
+    if (req.schoolId && session.school.toString() !== req.schoolId.toString()) {
+      return res.status(403).json({ success: false, error: 'Session does not belong to your school' });
+    }
+    // Deactivate all other sessions for this school
+    await AcademicSession.updateMany(
+      { school: session.school, _id: { $ne: session._id } },
+      { isCurrent: false, status: 'archived' }
+    );
+    session.isCurrent = true;
+    session.status = 'active';
+    await session.save();
+    res.json({ success: true, data: session });
+  } catch (err) { next(err); }
+};
+
+exports.archiveSession = async (req, res, next) => {
+  try {
+    const session = await AcademicSession.findById(req.params.id);
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+    // Security: verify session belongs to current school
+    if (req.schoolId && session.school.toString() !== req.schoolId.toString()) {
+      return res.status(403).json({ success: false, error: 'Session does not belong to your school' });
+    }
+    session.isCurrent = false;
+    session.status = 'archived';
+    await session.save();
+    res.json({ success: true, data: session });
+  } catch (err) { next(err); }
+};
+
+exports.copySessionSetup = async (req, res, next) => {
+  try {
+    const { sourceSessionId } = req.body;
+    const targetSession = await AcademicSession.findById(req.params.id);
+    if (!targetSession) return res.status(404).json({ success: false, error: 'Target session not found' });
+
+    const sourceSession = await AcademicSession.findById(sourceSessionId);
+    if (!sourceSession) return res.status(404).json({ success: false, error: 'Source session not found' });
+
+    // Security: both sessions must belong to the current school
+    const schoolId = req.schoolId || targetSession.school.toString();
+    if (targetSession.school.toString() !== schoolId || sourceSession.school.toString() !== schoolId) {
+      return res.status(403).json({ success: false, error: 'Sessions must belong to the same school' });
+    }
+
+    const SubjectRequirement = require('../models/SubjectRequirement');
+    const CanTeach = require('../models/CanTeach');
+    const copied = { classes: 0, requirements: 0, periodStructures: 0, canTeach: 0 };
+
+    // Copy classes
+    const sourceClasses = await Class.find({ school: schoolId, session: sourceSessionId, isActive: true });
+    const classIdMap = {};
+    for (const cls of sourceClasses) {
+      const obj = cls.toObject();
+      delete obj._id; delete obj.createdAt; delete obj.updatedAt; delete obj.__v;
+      obj.session = targetSession._id;
+      const newCls = await Class.create(obj);
+      classIdMap[cls._id.toString()] = newCls._id;
+      copied.classes++;
+    }
+
+    // Copy requirements
+    const sourceReqs = await SubjectRequirement.find({ school: schoolId, session: sourceSessionId });
+    for (const req2 of sourceReqs) {
+      const obj = req2.toObject();
+      delete obj._id; delete obj.createdAt; delete obj.updatedAt; delete obj.__v;
+      obj.session = targetSession._id;
+      if (classIdMap[obj.class?.toString()]) obj.class = classIdMap[obj.class.toString()];
+      await SubjectRequirement.create(obj);
+      copied.requirements++;
+    }
+
+    // Copy period structures
+    const sourcePS = await PeriodStructure.find({ school: schoolId, session: sourceSessionId });
+    for (const ps of sourcePS) {
+      const obj = ps.toObject();
+      delete obj._id; delete obj.createdAt; delete obj.updatedAt; delete obj.__v;
+      obj.session = targetSession._id;
+      obj.status = 'active';
+      obj.clonedFrom = ps._id;
+      // Remap assigned classes
+      if (obj.assignedTo?.classes?.length) {
+        obj.assignedTo.classes = obj.assignedTo.classes.map(cid =>
+          classIdMap[cid?.toString()] || cid
+        );
+      }
+      await PeriodStructure.create(obj);
+      copied.periodStructures++;
+    }
+
+    // Copy CanTeach mappings
+    const sourceCT = await CanTeach.find({ school: schoolId, session: sourceSessionId, isActive: true });
+    for (const ct of sourceCT) {
+      const obj = ct.toObject();
+      delete obj._id; delete obj.createdAt; delete obj.updatedAt; delete obj.__v;
+      obj.session = targetSession._id;
+      if (obj.eligibleClasses?.length) {
+        obj.eligibleClasses = obj.eligibleClasses.map(cid =>
+          classIdMap[cid?.toString()] || cid
+        );
+      }
+      await CanTeach.create(obj);
+      copied.canTeach++;
+    }
+
+    res.json({ success: true, data: { targetSession: targetSession._id, copied } });
   } catch (err) { next(err); }
 };
 
 // --- Period Structure (single - backward compat) ---
 exports.getPeriodStructure = async (req, res, next) => {
   try {
-    const { school, session } = await getScope();
-    let ps = await PeriodStructure.findOne({ school: school?._id, status: 'active' }).sort({ createdAt: -1 });
+    const { school, session } = await getScope(req);
+    if (!school) return res.status(400).json({ success: false, error: 'School context required' });
+    let ps = await PeriodStructure.findOne({ school: school._id, status: 'active' }).sort({ createdAt: -1 });
     if (!ps) {
       const defaultSlots = [
         { label: 'Period 1', slotNumber: 1, startTime: '08:00', endTime: '08:40', type: 'period', isSchedulable: true },
@@ -92,8 +239,9 @@ exports.updatePeriodStructure = async (req, res, next) => {
 // --- Period Structures (multi) ---
 exports.getPeriodStructures = async (req, res, next) => {
   try {
-    const { school, session } = await getScope();
-    const structures = await PeriodStructure.find({ school: school?._id })
+    const { school } = await getScope(req);
+    if (!school) return res.status(400).json({ success: false, error: 'School context required' });
+    const structures = await PeriodStructure.find({ school: school._id })
       .populate('assignedTo.classes', 'name grade section')
       .sort({ status: 1, templateType: 1, name: 1 });
     res.json({ success: true, count: structures.length, data: structures });
@@ -102,7 +250,8 @@ exports.getPeriodStructures = async (req, res, next) => {
 
 exports.createPeriodStructure = async (req, res, next) => {
   try {
-    const { school, session } = await getScope();
+    const { school, session } = await getScope(req);
+    if (!school) return res.status(400).json({ success: false, error: 'School context required' });
     const ps = await PeriodStructure.create({ ...req.body, school: school._id, session: session?._id });
     res.status(201).json({ success: true, data: ps });
   } catch (err) { next(err); }
@@ -151,15 +300,17 @@ exports.deletePeriodStructure = async (req, res, next) => {
 // --- Soft Preferences ---
 exports.getPreferences = async (req, res, next) => {
   try {
-    const { school } = await getScope();
-    const prefs = await SoftPreference.find({ school: school?._id }).sort({ priority: -1 });
+    const { school } = await getScope(req);
+    if (!school) return res.status(400).json({ success: false, error: 'School context required' });
+    const prefs = await SoftPreference.find({ school: school._id }).sort({ priority: -1 });
     res.json({ success: true, count: prefs.length, data: prefs });
   } catch (err) { next(err); }
 };
 
 exports.createPreference = async (req, res, next) => {
   try {
-    const { school, session } = await getScope();
+    const { school, session } = await getScope(req);
+    if (!school) return res.status(400).json({ success: false, error: 'School context required' });
     const pref = await SoftPreference.create({ ...req.body, school: school._id, session: session?._id });
     res.status(201).json({ success: true, data: pref });
   } catch (err) { next(err); }
@@ -183,7 +334,10 @@ exports.deletePreference = async (req, res, next) => {
 // --- Setup Status (Enhanced with readiness scoring) ---
 exports.getSetupStatus = async (req, res, next) => {
   try {
-    const { school, session } = await getScope();
+    const { school, session } = await getScope(req);
+    if (!school) {
+      return res.json({ success: true, data: { school: false, session: false, readinessScore: 0, canGenerate: false, steps: [], completedSteps: 0, totalSteps: 0, counts: {} } });
+    }
     const Teacher = require('../models/Teacher');
     const Room = require('../models/Room');
     const SubjectRequirement = require('../models/SubjectRequirement');
@@ -193,7 +347,7 @@ exports.getSetupStatus = async (req, res, next) => {
     const GeneratedTimetable = require('../models/GeneratedTimetable');
     const ConflictLog = require('../models/ConflictLog');
 
-    const schoolId = school?._id;
+    const schoolId = school._id;
     const sessionId = session?._id;
 
     const [teacherCount, classCount, subjectCount, roomCount, reqCount, psCount, combCount, canTeachCount] = await Promise.all([
@@ -201,9 +355,9 @@ exports.getSetupStatus = async (req, res, next) => {
       Class.countDocuments({ school: schoolId, isActive: true }),
       Subject.countDocuments({ school: schoolId, isActive: true }),
       Room.countDocuments({ school: schoolId, isAvailable: true }),
-      SubjectRequirement.countDocuments({ school: schoolId, session: sessionId }),
+      SubjectRequirement.countDocuments({ school: schoolId, ...(sessionId ? { session: sessionId } : {}) }),
       PeriodStructure.countDocuments({ school: schoolId }),
-      SubjectCombinationRule.countDocuments({ school: schoolId, session: sessionId, isActive: true }),
+      SubjectCombinationRule.countDocuments({ school: schoolId, ...(sessionId ? { session: sessionId } : {}), isActive: true }),
       CanTeach.countDocuments({ school: schoolId, isActive: true })
     ]);
 
@@ -271,7 +425,8 @@ exports.getSetupStatus = async (req, res, next) => {
 // --- Readiness Audit (Deep Validation) ---
 exports.getReadinessAudit = async (req, res, next) => {
   try {
-    const { school, session } = await getScope();
+    const { school, session } = await getScope(req);
+    if (!school) return res.status(400).json({ success: false, error: 'School context required' });
     const Teacher = require('../models/Teacher');
     const Room = require('../models/Room');
     const SubjectRequirement = require('../models/SubjectRequirement');
@@ -279,7 +434,7 @@ exports.getReadinessAudit = async (req, res, next) => {
     const CanTeach = require('../models/CanTeach');
     const ReservedPeriodRule = require('../models/ReservedPeriodRule');
 
-    const schoolId = school?._id;
+    const schoolId = school._id;
     const sessionId = session?._id;
 
     const [teachers, classes, subjects, rooms, requirements, canTeachMappings, reserved] = await Promise.all([
@@ -287,7 +442,7 @@ exports.getReadinessAudit = async (req, res, next) => {
       Class.find({ school: schoolId, isActive: true }),
       Subject.find({ school: schoolId, isActive: true }),
       Room.find({ school: schoolId, isAvailable: true }),
-      SubjectRequirement.find({ school: schoolId, session: sessionId }),
+      SubjectRequirement.find({ school: schoolId, ...(sessionId ? { session: sessionId } : {}) }),
       CanTeach.find({ school: schoolId, isActive: true }),
       ReservedPeriodRule.find({ school: schoolId })
     ]);
@@ -373,7 +528,7 @@ exports.getReadinessAudit = async (req, res, next) => {
 exports.validateStep = async (req, res, next) => {
   try {
     const { stepKey } = req.body;
-    const { school, session } = await getScope();
+    const { school, session } = await getScope(req);
     const schoolId = school?._id;
     const sessionId = session?._id;
 
@@ -443,7 +598,7 @@ exports.validateStep = async (req, res, next) => {
 
       case 'requirements': {
         const SubjectRequirement = require('../models/SubjectRequirement');
-        const count = await SubjectRequirement.countDocuments({ school: schoolId, session: sessionId });
+        const count = await SubjectRequirement.countDocuments({ school: schoolId, ...(sessionId ? { session: sessionId } : {}) });
         if (count === 0) result.errors.push('Weekly subject loads must be configured for at least one class');
         else result.valid = true;
         break;

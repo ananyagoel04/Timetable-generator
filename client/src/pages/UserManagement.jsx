@@ -13,7 +13,8 @@ const ROLE_COLORS = {
   teacher: 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/30'
 };
 
-const ROLES = ['school_admin', 'school_owner', 'teacher', 'platform_admin', 'platform_dev'];
+const SCHOOL_ROLES = ['school_owner', 'school_admin', 'principal', 'timetable_manager', 'teacher', 'office_staff', 'viewer'];
+const ALL_ROLES = [...SCHOOL_ROLES, 'platform_admin', 'platform_dev'];
 
 export default function UserManagement() {
   const { user: currentUser } = useAuth();
@@ -115,6 +116,7 @@ export default function UserManagement() {
   }, [users, search, roleFilter]);
 
   const isPlatformUser = currentUser?.role === 'platform_admin' || currentUser?.role === 'platform_dev';
+  const ROLES = isPlatformUser ? ALL_ROLES : SCHOOL_ROLES;
 
   if (loading) return (
     <div className="flex items-center justify-center py-24"><Loader2 className="animate-spin text-primary-500" size={32} /></div>

@@ -54,4 +54,7 @@ router.get('/:timetableId/snapshots', authorize('view_timetable'), tc.listSnapsh
 router.post('/:timetableId/rollback/:snapshotId', authorize('edit_timetable'), tc.rollbackToSnapshot);
 router.get('/:timetableId/compare/:snapshotId', authorize('view_timetable'), tc.compareSnapshot);
 
+// Delete timetable (transactional, with password verification)
+router.delete('/:timetableId', authorize('edit_timetable'), tc.deleteTimetable);
+
 module.exports = router;

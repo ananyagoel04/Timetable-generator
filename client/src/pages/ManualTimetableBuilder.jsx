@@ -1,14 +1,127 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import {
+  DndContext, closestCenter, DragOverlay, useSensor, useSensors,
+  PointerSensor, TouchSensor
+} from '@dnd-kit/core';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
   PenTool, Plus, Save, CheckCircle2, AlertTriangle, XCircle, ChevronDown,
   Loader2, Calendar, Clock, Users, BookOpen, DoorOpen, Lock, Unlock,
   ArrowLeft, Send, Trash2, Move, RefreshCw, Zap, Copy, FileText,
-  GripVertical, Info, X, Edit3
+  GripVertical, Info, X, Edit3, Layers, Eye
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+
+const BULK_DAYS_PRESETS = [
+  { label: 'Mon–Fri', days: ['Monday','Tuesday','Wednesday','Thursday','Friday'] },
+  { label: 'All', days: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] },
+  { label: 'MWF', days: ['Monday','Wednesday','Friday'] },
+  { label: 'TTS', days: ['Tuesday','Thursday','Saturday'] },
+];
+
+// ═══════════════════════════════════════════════════════════════════
+// DRAGGABLE LESSON CELL (dnd-kit)
+// ═══════════════════════════════════════════════════════════════════
+function ManualDraggableCell({ id, block, day, period, onDelete, onToggleLock, children }) {
+  const isLocked = block?.isLocked;
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id,
+    data: { block, day, period },
+    disabled: isLocked,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...(isLocked ? {} : { ...attributes, ...listeners })}
+      className={`relative group p-1.5 rounded-lg border transition-all
+        ${isDragging ? 'opacity-30 scale-95 ring-2 ring-primary-400' : 'hover:shadow-md'}
+        ${isLocked ? 'opacity-80 ring-1 ring-amber-400/30' : 'cursor-grab active:cursor-grabbing'}`}
+      style={{
+        backgroundColor: `${block.subject?.color || '#6366F1'}15`,
+        borderColor: `${block.subject?.color || '#6366F1'}40`
+      }}
+    >
+      <div className="text-[10px] font-bold truncate" style={{ color: block.subject?.color || '#6366F1' }}>
+        {block.subject?.code || block.subject?.name || 'N/A'}
+      </div>
+      <div className="text-[9px] text-slate-500 dark:text-dark-400 truncate">
+        {block.teacher?.shortName || block.teacher?.name || '—'}
+      </div>
+      {block.room && <div className="text-[8px] text-slate-400 dark:text-dark-500 truncate">{block.room.roomNumber || block.room.name}</div>}
+
+      {/* Hover actions */}
+      <div className="absolute -top-1 -right-1 hidden group-hover:flex gap-0.5">
+        <button onClick={(e) => { e.stopPropagation(); onToggleLock(block._id, block.isLocked); }}
+          className="p-0.5 rounded bg-white dark:bg-dark-700 shadow-sm border border-slate-200 dark:border-dark-600">
+          {block.isLocked ? <Lock size={9} className="text-amber-500" /> : <Unlock size={9} className="text-slate-400" />}
+        </button>
+        {!block.isLocked && (
+          <button onClick={(e) => { e.stopPropagation(); onDelete(block._id); }}
+            className="p-0.5 rounded bg-white dark:bg-dark-700 shadow-sm border border-slate-200 dark:border-dark-600">
+            <Trash2 size={9} className="text-red-400" />
+          </button>
+        )}
+      </div>
+
+      {/* Drag handle indicator */}
+      {!isLocked && (
+        <div className="absolute top-0.5 left-0.5 opacity-0 group-hover:opacity-60 transition-opacity">
+          <GripVertical size={8} className="text-slate-400" />
+        </div>
+      )}
+
+      {block.validationStatus === 'warning' && (
+        <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 rounded-full border border-white dark:border-dark-800" />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DROPPABLE PERIOD CELL (dnd-kit)
+// ═══════════════════════════════════════════════════════════════════
+function ManualDroppableCell({ id, day, period, onAdd, children }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id,
+    data: { day, period },
+  });
+
+  return (
+    <td className="p-1 border-b border-slate-100 dark:border-dark-800" ref={setNodeRef}>
+      {children || (
+        <button onClick={() => onAdd(day, period)}
+          className={`w-full py-3 px-1 rounded-lg border-2 border-dashed transition-all group
+            ${isOver
+              ? 'border-primary-400 bg-primary-50 dark:bg-primary-900/20 scale-[1.03] shadow-md'
+              : 'border-slate-200 dark:border-dark-700 text-slate-300 dark:text-dark-600 hover:border-primary-400 hover:text-primary-400 hover:bg-primary-500/5'}`}>
+          {isOver ? (
+            <span className="text-primary-500 font-medium text-xs animate-pulse mx-auto block">↓ Drop</span>
+          ) : (
+            <Plus size={14} className="mx-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
+        </button>
+      )}
+    </td>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DRAG OVERLAY (floating preview)
+// ═══════════════════════════════════════════════════════════════════
+function ManualDragOverlay({ block }) {
+  if (!block) return null;
+  return (
+    <div className="p-2 rounded-lg text-[10px] min-h-[40px] shadow-2xl border-l-4 opacity-90 pointer-events-none bg-white dark:bg-dark-800"
+      style={{ borderLeftColor: block.subject?.color || '#6366f1', width: '120px' }}>
+      <p className="font-bold text-slate-900 dark:text-dark-50 truncate">{block.subject?.code || block.subject?.name || 'N/A'}</p>
+      <p className="text-slate-500 dark:text-dark-400 truncate">{block.teacher?.shortName || block.teacher?.name}</p>
+    </div>
+  );
+}
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -48,11 +161,32 @@ export default function ManualTimetableBuilder() {
   const [savingDraft, setSavingDraft] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
+  // Drag/drop state
+  const [activeDragBlock, setActiveDragBlock] = useState(null);
+
+  // Bulk assignment state
+  const [showBulkDrawer, setShowBulkDrawer] = useState(false);
+  const [bulkForm, setBulkForm] = useState({
+    classId: '', subjectId: '', teacherId: '', roomId: '',
+    period: 1, duration: 1, type: 'normal',
+    days: ['Monday','Tuesday','Wednesday','Thursday','Friday'],
+    overwriteExisting: false, skipConflicts: true
+  });
+  const [bulkPreview, setBulkPreview] = useState(null);
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+
   // Add lesson form
   const [lessonForm, setLessonForm] = useState({
     classId: '', subjectId: '', teacherId: '', roomId: '',
     day: '', period: 1, duration: 1, type: 'normal', reason: ''
   });
+
+  // dnd-kit sensors
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
+  );
 
   // ── Unsaved changes warning ──
   useEffect(() => {
@@ -235,6 +369,69 @@ export default function ManualTimetableBuilder() {
       navigate('/timetable');
     } catch (err) { toast.error(err.message); }
     finally { setPublishing(false); }
+  };
+
+  // ── Move lesson (drag/drop) ──
+  const moveLesson = async (blockId, newDay, newPeriod) => {
+    if (!timetable?._id) return;
+    try {
+      const res = await api.put(`/timetable/manual/${timetable._id}/lesson/${blockId}/move`, { newDay, newPeriod });
+      if (res.data?.success) {
+        toast.success('Lesson moved!');
+        setHasUnsaved(true);
+        loadBlocks();
+      } else {
+        toast.error(res.data?.validation?.messages?.[0]?.message || 'Move failed — conflict detected');
+      }
+    } catch (err) { toast.error(err.response?.data?.message || 'Move failed'); }
+  };
+
+  // ── DnD handlers ──
+  const handleDragStart = useCallback((event) => {
+    setActiveDragBlock(event.active.data.current?.block || null);
+  }, []);
+
+  const handleDragEnd = useCallback((event) => {
+    setActiveDragBlock(null);
+    const { active, over } = event;
+    if (!over) return;
+    const src = active.data.current;
+    const tgt = over.data.current;
+    if (!src || !tgt) return;
+    if (src.day === tgt.day && src.period === tgt.period) return;
+    if (src.block?._id) {
+      moveLesson(src.block._id, tgt.day, tgt.period);
+    }
+  }, [timetable]);
+
+  const handleDragCancel = useCallback(() => setActiveDragBlock(null), []);
+
+  // ── Bulk assignment ──
+  const runBulkPreview = () => {
+    const preview = bulkForm.days.map(day => {
+      const block = getBlockForCell(day, bulkForm.period);
+      return {
+        day,
+        period: bulkForm.period,
+        existing: block ? (block.subject?.name || 'Occupied') : null,
+        action: block ? (bulkForm.overwriteExisting ? 'overwrite' : (bulkForm.skipConflicts ? 'skip' : 'conflict')) : 'create'
+      };
+    });
+    setBulkPreview(preview);
+    setBulkResult(null);
+  };
+
+  const submitBulkAssign = async () => {
+    if (!timetable?._id) return;
+    setBulkSubmitting(true);
+    try {
+      const res = await api.post(`/timetable/manual/${timetable._id}/bulk-assign`, bulkForm);
+      setBulkResult(res.data?.data || res.data);
+      toast.success(`Bulk assign: ${res.data?.data?.summary?.created || 0} created`);
+      setHasUnsaved(true);
+      loadBlocks();
+    } catch (err) { toast.error(err.response?.data?.message || 'Bulk assign failed'); }
+    finally { setBulkSubmitting(false); }
   };
 
   // ── Open add drawer with pre-filled slot ──
@@ -472,11 +669,17 @@ export default function ManualTimetableBuilder() {
           ))}
         </div>
 
-        {/* Quick Add Button */}
-        <button onClick={() => { setShowAddDrawer(true); setLessonForm(prev => ({ ...prev, classId: selectedClass })); }}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-medium shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 transition-all">
-          <Plus size={16} /> Add Lesson
-        </button>
+        {/* Quick Add + Bulk Assign Buttons */}
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setShowAddDrawer(true); setLessonForm(prev => ({ ...prev, classId: selectedClass })); }}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-medium shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 transition-all">
+            <Plus size={16} /> Add Lesson
+          </button>
+          <button onClick={() => { setBulkForm(prev => ({ ...prev, classId: selectedClass })); setShowBulkDrawer(true); setBulkPreview(null); setBulkResult(null); }}
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400 text-sm font-medium hover:bg-blue-500/20 transition-all">
+            <Layers size={14} /> Bulk Assign
+          </button>
+        </div>
       </div>
 
       {/* ── Main Content: Grid + Side Panel ── */}
@@ -490,6 +693,13 @@ export default function ManualTimetableBuilder() {
               <p className="text-sm text-slate-400 dark:text-dark-500">Choose a class from the dropdown above to view and edit the timetable grid</p>
             </div>
           ) : (
+            <DndContext
+              sensors={dndSensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
+            >
             <div className="glass-card overflow-hidden">
               <table className="w-full text-xs border-collapse min-w-[700px]">
                 <thead>
@@ -523,53 +733,26 @@ export default function ManualTimetableBuilder() {
                         }
 
                         const block = getBlockForCell(day, slot.slotNumber);
+                        const cellId = `manual-${day}-${slot.slotNumber}`;
+
                         if (block) {
                           return (
-                            <td key={day} className="p-1 border-b border-slate-100 dark:border-dark-800">
-                              <div className="relative group p-1.5 rounded-lg border transition-all hover:shadow-md cursor-default"
-                                style={{
-                                  backgroundColor: `${block.subject?.color || '#6366F1'}15`,
-                                  borderColor: `${block.subject?.color || '#6366F1'}40`
-                                }}>
-                                <div className="text-[10px] font-bold truncate" style={{ color: block.subject?.color || '#6366F1' }}>
-                                  {block.subject?.code || block.subject?.name || 'N/A'}
-                                </div>
-                                <div className="text-[9px] text-slate-500 dark:text-dark-400 truncate">
-                                  {block.teacher?.shortName || block.teacher?.name || '—'}
-                                </div>
-                                {block.room && <div className="text-[8px] text-slate-400 dark:text-dark-500 truncate">{block.room.roomNumber || block.room.name}</div>}
-
-                                {/* Hover actions */}
-                                <div className="absolute -top-1 -right-1 hidden group-hover:flex gap-0.5">
-                                  <button onClick={() => toggleLock(block._id, block.isLocked)}
-                                    className="p-0.5 rounded bg-white dark:bg-dark-700 shadow-sm border border-slate-200 dark:border-dark-600">
-                                    {block.isLocked ? <Lock size={9} className="text-amber-500" /> : <Unlock size={9} className="text-slate-400" />}
-                                  </button>
-                                  {!block.isLocked && (
-                                    <button onClick={() => deleteLesson(block._id)}
-                                      className="p-0.5 rounded bg-white dark:bg-dark-700 shadow-sm border border-slate-200 dark:border-dark-600">
-                                      <Trash2 size={9} className="text-red-400" />
-                                    </button>
-                                  )}
-                                </div>
-
-                                {/* Validation indicator */}
-                                {block.validationStatus === 'warning' && (
-                                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 rounded-full border border-white dark:border-dark-800" />
-                                )}
-                              </div>
-                            </td>
+                            <ManualDroppableCell key={day} id={cellId} day={day} period={slot.slotNumber} onAdd={openAddDrawer}>
+                              <ManualDraggableCell
+                                id={`drag-${block._id}-${day}-${slot.slotNumber}`}
+                                block={block}
+                                day={day}
+                                period={slot.slotNumber}
+                                onDelete={deleteLesson}
+                                onToggleLock={toggleLock}
+                              />
+                            </ManualDroppableCell>
                           );
                         }
 
-                        // Empty cell — clickable to add
+                        // Empty cell — droppable + clickable to add
                         return (
-                          <td key={day} className="p-1 border-b border-slate-100 dark:border-dark-800">
-                            <button onClick={() => openAddDrawer(day, slot.slotNumber)}
-                              className="w-full py-3 px-1 rounded-lg border-2 border-dashed border-slate-200 dark:border-dark-700 text-slate-300 dark:text-dark-600 hover:border-primary-400 hover:text-primary-400 hover:bg-primary-500/5 transition-all group">
-                              <Plus size={14} className="mx-auto opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </button>
-                          </td>
+                          <ManualDroppableCell key={day} id={cellId} day={day} period={slot.slotNumber} onAdd={openAddDrawer} />
                         );
                       })}
                     </tr>
@@ -577,6 +760,12 @@ export default function ManualTimetableBuilder() {
                 </tbody>
               </table>
             </div>
+
+            {/* Drag overlay — floating preview */}
+            <DragOverlay dropAnimation={{ duration: 200, easing: 'ease' }}>
+              {activeDragBlock && <ManualDragOverlay block={activeDragBlock} />}
+            </DragOverlay>
+            </DndContext>
           )}
         </div>
 
@@ -864,6 +1053,219 @@ export default function ManualTimetableBuilder() {
               )}
 
               <p className="text-xs text-slate-400 text-center">Completeness: {fullValidation.completenessScore}%</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk Assignment Drawer ── */}
+      {showBulkDrawer && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex justify-end" onClick={() => setShowBulkDrawer(false)}>
+          <div className="w-full max-w-md bg-white dark:bg-dark-900 shadow-2xl overflow-hidden flex flex-col animate-slide-up" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="p-4 border-b border-slate-200 dark:border-dark-700 flex items-center justify-between shrink-0">
+              <h2 className="font-bold text-slate-900 dark:text-dark-50 flex items-center gap-2">
+                <Layers size={18} className="text-blue-500" /> Bulk Assign Lessons
+              </h2>
+              <button onClick={() => setShowBulkDrawer(false)} className="p-1 text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Class */}
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1 block">Class</label>
+                <select value={bulkForm.classId} onChange={e => setBulkForm(f => ({ ...f, classId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm">
+                  <option value="">Select class...</option>
+                  {classes.map(c => <option key={c._id} value={c._id}>{c.grade}-{c.section}{c.stream && c.stream !== 'none' ? ` (${c.stream})` : ''}</option>)}
+                </select>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1 block">Subject</label>
+                <select value={bulkForm.subjectId} onChange={e => setBulkForm(f => ({ ...f, subjectId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm">
+                  <option value="">Select subject...</option>
+                  {subjects.map(s => <option key={s._id} value={s._id}>{s.name} ({s.code})</option>)}
+                </select>
+              </div>
+
+              {/* Teacher + Room */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1 block">Teacher</label>
+                  <select value={bulkForm.teacherId} onChange={e => setBulkForm(f => ({ ...f, teacherId: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm">
+                    <option value="">Select...</option>
+                    {teachers.map(t => <option key={t._id} value={t._id}>{t.shortName || t.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1 block">Room</label>
+                  <select value={bulkForm.roomId} onChange={e => setBulkForm(f => ({ ...f, roomId: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm">
+                    <option value="">Select...</option>
+                    {rooms.map(r => <option key={r._id} value={r._id}>{r.name} ({r.type})</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Period + Duration */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1 block">Period</label>
+                  <select value={bulkForm.period} onChange={e => setBulkForm(f => ({ ...f, period: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm">
+                    {(getPeriodsForDay('Monday')).filter(s => s.isSchedulable).map(s => (
+                      <option key={s.slotNumber} value={s.slotNumber}>{s.label} ({s.startTime})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-1 block">Duration</label>
+                  <select value={bulkForm.duration} onChange={e => setBulkForm(f => ({ ...f, duration: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 text-sm">
+                    <option value={1}>1 Period</option>
+                    <option value={2}>2 Periods</option>
+                    <option value={3}>3 Periods</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Days — checkboxes with presets */}
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-dark-300 mb-2 block">Days</label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {BULK_DAYS_PRESETS.map(preset => (
+                    <button key={preset.label} onClick={() => setBulkForm(f => ({ ...f, days: [...preset.days] }))}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-medium border transition-colors ${
+                        JSON.stringify(bulkForm.days.sort()) === JSON.stringify([...preset.days].sort())
+                          ? 'bg-blue-500/20 border-blue-500/40 text-blue-600 dark:text-blue-400'
+                          : 'bg-slate-50 dark:bg-dark-800 border-slate-200 dark:border-dark-700 text-slate-500 hover:border-blue-300'
+                      }`}>
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {DAYS.map(day => (
+                    <label key={day} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-dark-300 cursor-pointer">
+                      <input type="checkbox" checked={bulkForm.days.includes(day)}
+                        onChange={e => {
+                          setBulkForm(f => ({
+                            ...f,
+                            days: e.target.checked ? [...f.days, day] : f.days.filter(d => d !== day)
+                          }));
+                        }}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                      {day.slice(0, 3)}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Options */}
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-dark-300 cursor-pointer">
+                  <input type="checkbox" checked={bulkForm.overwriteExisting}
+                    onChange={e => setBulkForm(f => ({ ...f, overwriteExisting: e.target.checked }))}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500" />
+                  Overwrite existing lessons
+                </label>
+                <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-dark-300 cursor-pointer">
+                  <input type="checkbox" checked={bulkForm.skipConflicts}
+                    onChange={e => setBulkForm(f => ({ ...f, skipConflicts: e.target.checked }))}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                  Skip conflicting slots
+                </label>
+              </div>
+
+              {/* Preview Table */}
+              {bulkPreview && !bulkResult && (
+                <div className="border border-slate-200 dark:border-dark-700 rounded-xl overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-50 dark:bg-dark-800 text-xs font-semibold text-slate-600 dark:text-dark-300 flex items-center gap-1.5">
+                    <Eye size={12} /> Preview
+                  </div>
+                  <div className="divide-y divide-slate-100 dark:divide-dark-800">
+                    {bulkPreview.map((item, i) => (
+                      <div key={i} className="px-3 py-2 flex items-center justify-between text-xs">
+                        <span className="text-slate-700 dark:text-dark-200 font-medium">{item.day.slice(0, 3)} P{item.period}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                          item.action === 'create' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' :
+                          item.action === 'overwrite' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' :
+                          item.action === 'skip' ? 'bg-slate-500/15 text-slate-500' :
+                          'bg-red-500/15 text-red-500'
+                        }`}>
+                          {item.action === 'create' ? '✓ Create' :
+                           item.action === 'overwrite' ? `⚠ Overwrite (${item.existing})` :
+                           item.action === 'skip' ? `— Skip (${item.existing})` :
+                           `✕ Conflict (${item.existing})`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Result Summary */}
+              {bulkResult && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center p-2.5 bg-emerald-50 dark:bg-emerald-900/15 rounded-xl border border-emerald-200/50 dark:border-emerald-800/30">
+                      <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{bulkResult.summary?.created || 0}</p>
+                      <p className="text-[10px] text-emerald-500">Created</p>
+                    </div>
+                    <div className="text-center p-2.5 bg-slate-50 dark:bg-dark-800 rounded-xl border border-slate-200/50 dark:border-dark-700">
+                      <p className="text-lg font-bold text-slate-600 dark:text-dark-300">{bulkResult.summary?.skipped || 0}</p>
+                      <p className="text-[10px] text-slate-400">Skipped</p>
+                    </div>
+                    <div className="text-center p-2.5 bg-red-50 dark:bg-red-900/15 rounded-xl border border-red-200/50 dark:border-red-800/30">
+                      <p className="text-lg font-bold text-red-600 dark:text-red-400">{bulkResult.summary?.conflicts || 0}</p>
+                      <p className="text-[10px] text-red-500">Conflicts</p>
+                    </div>
+                  </div>
+                  {(bulkResult.summary?.overwritten || 0) > 0 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 text-center">⚠ {bulkResult.summary.overwritten} overwritten</p>
+                  )}
+                  {bulkResult.conflicts?.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] text-red-400 uppercase font-semibold">Conflicts</p>
+                      {bulkResult.conflicts.map((c, i) => (
+                        <p key={i} className="text-xs text-red-600 dark:text-red-400">{c.day} P{c.period}: {c.reason}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Sticky footer */}
+            <div className="p-4 border-t border-slate-200 dark:border-dark-700 shrink-0 bg-white dark:bg-dark-900 flex gap-2">
+              {!bulkPreview && !bulkResult ? (
+                <button onClick={runBulkPreview}
+                  disabled={!bulkForm.classId || !bulkForm.subjectId || !bulkForm.teacherId || bulkForm.days.length === 0}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+                  <Eye size={14} /> Preview ({bulkForm.days.length} days)
+                </button>
+              ) : bulkPreview && !bulkResult ? (
+                <>
+                  <button onClick={() => setBulkPreview(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-100 dark:bg-dark-800 text-slate-600 dark:text-dark-300">
+                    ← Back
+                  </button>
+                  <button onClick={submitBulkAssign} disabled={bulkSubmitting}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg hover:shadow-blue-500/30 transition-all flex items-center justify-center gap-1.5">
+                    {bulkSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                    Assign {bulkPreview.filter(p => p.action === 'create' || p.action === 'overwrite').length} Lessons
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => { setShowBulkDrawer(false); setBulkPreview(null); setBulkResult(null); }}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-all">
+                  ✓ Done
+                </button>
+              )}
             </div>
           </div>
         </div>

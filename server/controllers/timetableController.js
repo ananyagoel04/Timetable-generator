@@ -1,12 +1,37 @@
 const LessonBlock = require('../models/LessonBlock');
 const GeneratedTimetable = require('../models/GeneratedTimetable');
 const ConflictLog = require('../models/ConflictLog');
+const TimetableSnapshot = require('../models/TimetableSnapshot');
+const AuditLog = require('../models/AuditLog');
 const SchedulerEngine = require('../services/schedulerEngine');
 const TimetableEditor = require('../services/timetableEditor');
 const GenerationJob = require('../services/engine/GenerationJob');
 const School = require('../models/School');
+const PeriodStructure = require('../models/PeriodStructure');
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
 const { withTransaction } = require('../services/transactionHelper');
 const { createAuditEntry } = require('../services/auditHelper');
+
+/**
+ * Build a periodInfo map from the active PeriodStructure.
+ * Returns { 1: { name: 'Period 1', type: 'period', startTime, endTime }, 4: { name: 'Short Break', type: 'break', ... }, ... }
+ */
+async function buildPeriodInfo(schoolId) {
+  const ps = await PeriodStructure.findOne({ school: schoolId, status: 'active' }).sort({ createdAt: -1 });
+  if (!ps || !ps.timeslots?.length) return {};
+  const info = {};
+  for (const slot of ps.timeslots) {
+    info[slot.slotNumber] = {
+      name: slot.label || `Period ${slot.slotNumber}`,
+      type: slot.type || 'period',
+      isSchedulable: slot.isSchedulable !== false,
+      startTime: slot.startTime || '',
+      endTime: slot.endTime || ''
+    };
+  }
+  return info;
+}
 
 // NOTE: All controller functions use req.schoolId and req.sessionId injected
 // by the protect + scopeToSchool middleware chain. The old getScope() function
@@ -84,7 +109,8 @@ exports.getTimetableBlocks = async (req, res, next) => {
   try {
     const blocks = await LessonBlock.find({ timetable: req.params.timetableId })
       .populate('subject teacher room classes').sort({ day: 1, 'periods': 1 });
-    res.json({ success: true, count: blocks.length, data: blocks });
+    const periodInfo = await buildPeriodInfo(req.schoolId);
+    res.json({ success: true, count: blocks.length, data: blocks, periodInfo });
   } catch (err) { next(err); }
 };
 
@@ -92,7 +118,8 @@ exports.getClassBlocks = async (req, res, next) => {
   try {
     const blocks = await LessonBlock.find({ timetable: req.params.timetableId, classes: req.params.classId })
       .populate('subject teacher room classes').sort({ day: 1, 'periods': 1 });
-    res.json({ success: true, count: blocks.length, data: blocks });
+    const periodInfo = await buildPeriodInfo(req.schoolId);
+    res.json({ success: true, count: blocks.length, data: blocks, periodInfo });
   } catch (err) { next(err); }
 };
 
@@ -100,7 +127,8 @@ exports.getTeacherBlocks = async (req, res, next) => {
   try {
     const blocks = await LessonBlock.find({ timetable: req.params.timetableId, teacher: req.params.teacherId })
       .populate('subject room classes').sort({ day: 1, 'periods': 1 });
-    res.json({ success: true, count: blocks.length, data: blocks });
+    const periodInfo = await buildPeriodInfo(req.schoolId);
+    res.json({ success: true, count: blocks.length, data: blocks, periodInfo });
   } catch (err) { next(err); }
 };
 
@@ -376,7 +404,6 @@ exports.getUndoStatus = async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════════════
 // SNAPSHOT MANAGEMENT
 // ═══════════════════════════════════════════════════════════════════
-const TimetableSnapshot = require('../models/TimetableSnapshot');
 
 exports.createSnapshot = async (req, res, next) => {
   try {
@@ -526,6 +553,104 @@ exports.compareSnapshot = async (req, res, next) => {
         added: added.length, removed: removed.length, changed: changed.length,
         details: { added: added.slice(0, 20), removed: removed.slice(0, 20), changed: changed.slice(0, 20) }
       }
+    });
+  } catch (err) { next(err); }
+};
+
+// ═══════════════ DELETE TIMETABLE (TRANSACTIONAL) ═══════════════
+exports.deleteTimetable = async (req, res, next) => {
+  try {
+    const timetableId = req.params.timetableId;
+    const schoolId = req.schoolId;
+    const { confirmPublishedDelete, password } = req.body;
+
+    // Find timetable with tenant scope
+    const tt = await GeneratedTimetable.findOne({ _id: timetableId, school: schoolId });
+    if (!tt) {
+      return res.status(404).json({ success: false, data: null, message: 'Timetable not found', error: { code: 'NOT_FOUND' } });
+    }
+
+    // Block published delete without explicit confirmation
+    if (tt.status === 'published' && !confirmPublishedDelete) {
+      return res.status(400).json({
+        success: false, data: null,
+        message: 'This timetable is published. Set confirmPublishedDelete: true to confirm.',
+        error: { code: 'PUBLISHED_DELETE_BLOCKED' }
+      });
+    }
+
+    // Verify password
+    if (!password) {
+      return res.status(400).json({
+        success: false, data: null,
+        message: 'Password is required to delete a timetable.',
+        error: { code: 'PASSWORD_REQUIRED' }
+      });
+    }
+
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user) {
+      return res.status(401).json({ success: false, data: null, message: 'User not found', error: { code: 'AUTH_FAILED' } });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false, data: null,
+        message: 'Incorrect password. Delete cancelled.',
+        error: { code: 'PASSWORD_MISMATCH' }
+      });
+    }
+
+    // Count related data for response
+    const [blockCount, conflictCount, snapshotCount] = await Promise.all([
+      LessonBlock.countDocuments({ timetable: timetableId }),
+      ConflictLog.countDocuments({ timetable: timetableId }),
+      TimetableSnapshot.countDocuments({ timetable: timetableId })
+    ]);
+
+    // Transactional delete
+    const deletedCounts = await withTransaction(async (session) => {
+      const opts = session ? { session } : {};
+      const blockResult = await LessonBlock.deleteMany({ timetable: timetableId }, opts);
+      const conflictResult = await ConflictLog.deleteMany({ timetable: timetableId }, opts);
+      const snapshotResult = await TimetableSnapshot.deleteMany({ timetable: timetableId }, opts);
+      await GeneratedTimetable.deleteOne({ _id: timetableId, school: schoolId }, opts);
+
+      return {
+        blocks: blockResult.deletedCount || 0,
+        conflicts: conflictResult.deletedCount || 0,
+        snapshots: snapshotResult.deletedCount || 0
+      };
+    });
+
+    // Remove from editor cache
+    _editorCache.delete(timetableId.toString());
+
+    // Audit log (after transaction so it persists even on rollback)
+    try {
+      await AuditLog.create({
+        school: schoolId,
+        session: req.sessionId,
+        user: req.user._id,
+        action: 'timetable_deleted',
+        entityType: 'timetable',
+        entityId: timetableId,
+        entityName: tt.name,
+        source: 'api',
+        metadata: { deletedCounts, status: tt.status }
+      });
+    } catch { /* audit should not block response */ }
+
+    res.json({
+      success: true,
+      data: {
+        timetableId,
+        name: tt.name,
+        deletedCounts
+      },
+      message: `Timetable "${tt.name}" and ${deletedCounts.blocks} blocks deleted successfully.`,
+      error: null
     });
   } catch (err) { next(err); }
 };

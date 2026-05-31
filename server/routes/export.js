@@ -14,7 +14,7 @@ const Substitution = require('../models/Substitution');
 router.get('/timetable/excel', authorize('export_reports'), async (req, res, next) => {
   try {
     const { timetableId, viewType = 'class' } = req.query;
-    const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+    const school = await School.findById(req.schoolId);
     if (!school) return res.status(404).json({ success: false, error: 'School not found' });
 
     const tt = timetableId
@@ -87,7 +87,7 @@ router.get('/timetable/excel', authorize('export_reports'), async (req, res, nex
 // GET /api/export/substitutions/excel?from=...&to=...
 router.get('/substitutions/excel', authorize('export_reports'), async (req, res, next) => {
   try {
-    const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+    const school = await School.findById(req.schoolId);
     const { from, to } = req.query;
     const query = { school: school._id };
     if (from || to) {
@@ -138,7 +138,7 @@ router.get('/substitutions/excel', authorize('export_reports'), async (req, res,
 // GET /api/export/workload/excel
 router.get('/workload/excel', authorize('export_reports'), async (req, res, next) => {
   try {
-    const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+    const school = await School.findById(req.schoolId);
     const tt = await GeneratedTimetable.findOne({ school: school._id }).sort({ createdAt: -1 });
     if (!tt) return res.status(404).json({ success: false, error: 'No timetable found' });
 
@@ -243,7 +243,7 @@ const AcademicSession = require('../models/AcademicSession');
 const PeriodStructure = require('../models/PeriodStructure');
 
 async function _getPdfScope(req) {
-  const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+  const school = await School.findById(req.schoolId);
   const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
   const ps = await PeriodStructure.findOne({ school: school?._id, status: 'active' });
   const workingDays = school?.settings?.workingDays || ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -406,7 +406,7 @@ router.get('/timetable/room-pdf', authorize('export_reports'), async (req, res, 
 // ═══════════════════════════════════════════════════════════════
 router.get('/conflicts/excel', authorize('export_reports'), async (req, res, next) => {
   try {
-    const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+    const school = await School.findById(req.schoolId);
     const tt = await GeneratedTimetable.findOne({ school: school._id }).sort({ createdAt: -1 });
     if (!tt) return res.status(404).json({ success: false, error: 'No timetable found' });
 
@@ -456,7 +456,7 @@ router.get('/audit/excel', authorize('view_audit', 'export_reports'), async (req
       return res.status(404).json({ success: false, error: 'AuditLog model not available' });
     }
 
-    const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+    const school = await School.findById(req.schoolId);
     const { from, to, module: mod } = req.query;
     const filter = { school: school._id };
     if (mod) filter.module = mod;
@@ -507,7 +507,7 @@ router.get('/audit/excel', authorize('view_audit', 'export_reports'), async (req
 // ═══════════════════════════════════════════════════════════════
 router.get('/room-utilization/excel', authorize('export_reports'), async (req, res, next) => {
   try {
-    const school = await School.findById(req.schoolId || (await School.findOne())?._id);
+    const school = await School.findById(req.schoolId);
     const tt = await GeneratedTimetable.findOne({ school: school._id }).sort({ createdAt: -1 });
     if (!tt) return res.status(404).json({ success: false, error: 'No timetable found' });
 

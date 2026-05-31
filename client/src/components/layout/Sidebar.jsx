@@ -1,15 +1,16 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BookOpen, School, DoorOpen, Calendar, Clock,
   Zap, AlertTriangle, UserMinus, RefreshCw, ChevronLeft, ChevronRight,
   GraduationCap, Settings, FileText, Layers, Shield, Wrench,
   Menu, X, LogOut, ClipboardList, BarChart3, Moon, Sun, Monitor, CheckSquare,
-  Brain, PenTool
+  Brain, PenTool, Building2, ChevronDown, CalendarDays
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSidebar } from '../../context/SidebarContext';
 import { useTheme } from '../../context/ThemeContext';
+import api from '../../api/axios';
 
 // Roles that can see each item — omit 'roles' = all can see
 const PLATFORM_ROLES = ['platform_owner', 'platform_support', 'platform_developer', 'platform_qa', 'deployment_manager'];
@@ -19,53 +20,202 @@ const STAFF_ROLES = [...MANAGER_ROLES, 'office_staff'];
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { path: '/setup', icon: Wrench, label: 'Setup Wizard', roles: ADMIN_ROLES },
+  { path: '/setup', icon: Wrench, label: 'Setup Wizard', roles: ADMIN_ROLES, schoolRequired: true },
   { divider: true, label: 'Scheduling' },
-  { path: '/timetable', icon: Calendar, label: 'Timetable Editor' },
-  { path: '/generator', icon: Zap, label: 'Generator', roles: MANAGER_ROLES },
-  { path: '/manual-timetable', icon: PenTool, label: 'Create Manually', roles: MANAGER_ROLES },
-  { path: '/conflicts', icon: AlertTriangle, label: 'Conflict Center', roles: MANAGER_ROLES },
+  { path: '/timetable', icon: Calendar, label: 'Timetable Editor', schoolRequired: true },
+  { path: '/generator', icon: Zap, label: 'Generator', roles: MANAGER_ROLES, schoolRequired: true },
+  { path: '/manual-timetable', icon: PenTool, label: 'Create Manually', roles: MANAGER_ROLES, schoolRequired: true },
+  { path: '/conflicts', icon: AlertTriangle, label: 'Conflict Center', roles: MANAGER_ROLES, schoolRequired: true },
   { divider: true, label: 'Master Data', roles: STAFF_ROLES },
-  { path: '/teachers', icon: Users, label: 'Teachers', roles: STAFF_ROLES },
-  { path: '/classes', icon: School, label: 'Classes', roles: STAFF_ROLES },
-  { path: '/subjects', icon: BookOpen, label: 'Subjects', roles: STAFF_ROLES },
-  { path: '/rooms', icon: DoorOpen, label: 'Rooms', roles: STAFF_ROLES },
-  { path: '/periods', icon: Clock, label: 'Period Structure', roles: MANAGER_ROLES },
+  { path: '/teachers', icon: Users, label: 'Teachers', roles: STAFF_ROLES, schoolRequired: true },
+  { path: '/classes', icon: School, label: 'Classes', roles: STAFF_ROLES, schoolRequired: true },
+  { path: '/subjects', icon: BookOpen, label: 'Subjects', roles: STAFF_ROLES, schoolRequired: true },
+  { path: '/rooms', icon: DoorOpen, label: 'Rooms', roles: STAFF_ROLES, schoolRequired: true },
+  { path: '/periods', icon: Clock, label: 'Period Structure', roles: MANAGER_ROLES, schoolRequired: true },
   { divider: true, label: 'Rules & Config', roles: MANAGER_ROLES },
-  { path: '/requirements', icon: FileText, label: 'Weekly Periods', roles: MANAGER_ROLES },
-  { path: '/combinations', icon: Layers, label: 'Combined Classes', roles: MANAGER_ROLES },
-  { path: '/rules', icon: Shield, label: 'Rules & Prefs', roles: MANAGER_ROLES },
-  { path: '/can-teach', icon: CheckSquare, label: 'Can Teach', roles: MANAGER_ROLES },
+  { path: '/requirements', icon: FileText, label: 'Weekly Periods', roles: MANAGER_ROLES, schoolRequired: true },
+  { path: '/combinations', icon: Layers, label: 'Combined Classes', roles: MANAGER_ROLES, schoolRequired: true },
+  { path: '/rules', icon: Shield, label: 'Rules & Prefs', roles: MANAGER_ROLES, schoolRequired: true },
+  { path: '/can-teach', icon: CheckSquare, label: 'Can Teach', roles: MANAGER_ROLES, schoolRequired: true },
   { divider: true, label: 'Operations' },
-  { path: '/absences', icon: UserMinus, label: 'Absences', roles: [...MANAGER_ROLES, 'teacher'] },
-  { path: '/substitutions', icon: RefreshCw, label: 'Substitutions', roles: [...MANAGER_ROLES, 'teacher'] },
-  { path: '/replacements', icon: Users, label: 'Replacements', roles: MANAGER_ROLES },
+  { path: '/absences', icon: UserMinus, label: 'Absences', roles: [...MANAGER_ROLES, 'teacher'], schoolRequired: true },
+  { path: '/substitutions', icon: RefreshCw, label: 'Substitutions', roles: [...MANAGER_ROLES, 'teacher'], schoolRequired: true },
+  { path: '/replacements', icon: Users, label: 'Replacements', roles: MANAGER_ROLES, schoolRequired: true },
   { divider: true, label: 'System', roles: ADMIN_ROLES },
-  { path: '/users', icon: Users, label: 'User Management', roles: ADMIN_ROLES },
-  { path: '/audit-logs', icon: ClipboardList, label: 'Audit Logs', roles: ADMIN_ROLES },
-  { path: '/reports', icon: BarChart3, label: 'Reports', roles: STAFF_ROLES },
-  { path: '/analytics', icon: Brain, label: 'Analytics', roles: MANAGER_ROLES },
-  { path: '/roles', icon: Shield, label: 'Roles & Permissions', roles: ADMIN_ROLES },
-  { path: '/settings', icon: Settings, label: 'Settings', roles: ADMIN_ROLES },
+  { path: '/users', icon: Users, label: 'User Management', roles: ADMIN_ROLES, schoolRequired: true },
+  { path: '/sessions', icon: CalendarDays, label: 'Sessions', roles: ADMIN_ROLES, schoolRequired: true },
+  { path: '/audit-logs', icon: ClipboardList, label: 'Audit Logs', roles: ADMIN_ROLES, schoolRequired: true },
+  { path: '/reports', icon: BarChart3, label: 'Reports', roles: STAFF_ROLES, schoolRequired: true },
+  { path: '/analytics', icon: Brain, label: 'Analytics', roles: MANAGER_ROLES, schoolRequired: true },
+  { path: '/roles', icon: Shield, label: 'Roles & Permissions', roles: ADMIN_ROLES, schoolRequired: true },
+  { path: '/settings', icon: Settings, label: 'Settings', roles: ADMIN_ROLES, schoolRequired: true },
   { divider: true, label: 'Platform', roles: PLATFORM_ROLES },
   { path: '/platform', icon: GraduationCap, label: 'Platform Admin', roles: PLATFORM_ROLES },
 ];
 
 export default function Sidebar() {
   const { collapsed, setCollapsed, mobileOpen, setMobileOpen, sidebarWidth } = useSidebar();
-  const { user, logout } = useAuth();
+  const { user, logout, isPlatformUser, selectedSchool, selectedSchoolName, switchSchool, sessionName, switchSession, selectedSession, clearSchoolContext } = useAuth();
   const { theme, changeTheme } = useTheme();
   const location = useLocation();
 
+  // Platform school list
+  const [platformSchools, setPlatformSchools] = useState([]);
+  const [schoolDropdownOpen, setSchoolDropdownOpen] = useState(false);
+  const [sessionDropdownOpen, setSessionDropdownOpen] = useState(false);
+  const [sessions, setSessions] = useState([]);
+
+  const isPlatform = isPlatformUser();
+
+  // Load platform schools
+  useEffect(() => {
+    if (!isPlatform) return;
+    api.get('/platform/schools').then(r => {
+      setPlatformSchools(r.data || []);
+    }).catch(() => {});
+  }, [isPlatform]);
+
+  // Load sessions for selected school
+  useEffect(() => {
+    if (!selectedSchool) { setSessions([]); return; }
+    api.get('/setup/sessions').then(r => {
+      const data = r.data || [];
+      setSessions(Array.isArray(data) ? data : []);
+    }).catch(() => setSessions([]));
+  }, [selectedSchool]);
+
   // Filter nav items by user role
   const userRole = user?.role || 'viewer';
-  const filteredNavItems = navItems.filter(item => {
-    if (!item.roles) return true; // No restriction = visible to all
+  const filteredNavItems = useMemo(() => navItems.filter(item => {
+    if (!item.roles) return true;
     return item.roles.includes(userRole);
-  });
+  }), [userRole]);
 
   // Close mobile drawer on route change
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
+
+  // Handle school selection for platform users
+  const handleSchoolSelect = (school) => {
+    const firstSession = sessions.find(s => s.isCurrent) || sessions[0];
+    switchSchool(school._id, firstSession?._id, school.name);
+    setSchoolDropdownOpen(false);
+    // Reload sessions for new school
+    api.get('/setup/sessions').then(r => {
+      const data = r.data || [];
+      setSessions(Array.isArray(data) ? data : []);
+      // Auto-select current session
+      const current = data.find(s => s.isCurrent);
+      if (current) switchSession(current._id, current.name);
+    }).catch(() => {});
+  };
+
+  const handleSessionSelect = (session) => {
+    switchSession(session._id, session.name);
+    setSessionDropdownOpen(false);
+  };
+
+  const handleClearSchool = () => {
+    clearSchoolContext();
+    setSchoolDropdownOpen(false);
+    setSessions([]);
+  };
+
+  // School/Session Context Section
+  const SchoolContextSection = ({ isMobile = false }) => {
+    if (collapsed && !isMobile) return null;
+
+    return (
+      <div className="px-3 py-2 space-y-2 border-b border-slate-300/50 dark:border-dark-700/50">
+        {/* School Selector — platform users ONLY */}
+        {isPlatform && (
+          <div className="relative">
+            <button onClick={() => setSchoolDropdownOpen(!schoolDropdownOpen)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/60 dark:bg-dark-800/60 border border-slate-200/50 dark:border-dark-700/50 hover:border-primary-500/40 transition-all text-left">
+              <Building2 size={15} className="text-primary-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[9px] text-slate-400 dark:text-dark-500 uppercase tracking-wider font-semibold">School</p>
+                <p className="text-xs font-medium text-slate-800 dark:text-dark-100 truncate">
+                  {selectedSchoolName || (selectedSchool ? 'Loading...' : 'Select a school')}
+                </p>
+              </div>
+              <ChevronDown size={14} className={`text-slate-400 transition-transform ${schoolDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {schoolDropdownOpen && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-dark-800 rounded-xl border border-slate-200 dark:border-dark-700 shadow-xl z-50 max-h-64 overflow-y-auto">
+                {selectedSchool && (
+                  <button onClick={handleClearSchool}
+                    className="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border-b border-slate-200/50 dark:border-dark-700/50 font-medium">
+                    ✕ Clear Selection
+                  </button>
+                )}
+                {platformSchools.length === 0 ? (
+                  <p className="px-3 py-3 text-xs text-slate-400 text-center">No schools found</p>
+                ) : platformSchools.map(s => (
+                  <button key={s._id} onClick={() => handleSchoolSelect(s)}
+                    className={`w-full text-left px-3 py-2.5 text-xs hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors flex items-center gap-2 ${
+                      selectedSchool === s._id ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-semibold' : 'text-slate-700 dark:text-dark-200'
+                    }`}>
+                    <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary-500/20 to-purple-500/20 flex items-center justify-center shrink-0">
+                      <span className="text-[10px] font-bold text-primary-500">{s.name?.charAt(0)}</span>
+                    </div>
+                    <span className="truncate">{s.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* School name (read-only) — school users only */}
+        {!isPlatform && selectedSchoolName && (
+          <div className="flex items-center gap-2 px-3 py-1.5">
+            <Building2 size={14} className="text-primary-400 shrink-0" />
+            <p className="text-xs font-medium text-slate-700 dark:text-dark-200 truncate">{selectedSchoolName}</p>
+          </div>
+        )}
+
+        {/* Session Selector — all users when school is selected */}
+        {selectedSchool && (
+          <div className="relative">
+            <button onClick={() => setSessionDropdownOpen(!sessionDropdownOpen)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/60 dark:bg-dark-800/60 border border-slate-200/50 dark:border-dark-700/50 hover:border-emerald-500/40 transition-all text-left">
+              <CalendarDays size={15} className="text-emerald-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[9px] text-slate-400 dark:text-dark-500 uppercase tracking-wider font-semibold">Session</p>
+                <p className="text-xs font-medium text-slate-800 dark:text-dark-100 truncate">
+                  {sessionName || 'Select session'}
+                </p>
+              </div>
+              <ChevronDown size={14} className={`text-slate-400 transition-transform ${sessionDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {sessionDropdownOpen && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-dark-800 rounded-xl border border-slate-200 dark:border-dark-700 shadow-xl z-50 max-h-48 overflow-y-auto">
+                {sessions.length === 0 ? (
+                  <p className="px-3 py-3 text-xs text-slate-400 text-center">No sessions found</p>
+                ) : sessions.map(s => (
+                  <button key={s._id} onClick={() => handleSessionSelect(s)}
+                    className={`w-full text-left px-3 py-2.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors flex items-center gap-2 ${
+                      selectedSession === s._id ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-slate-700 dark:text-dark-200'
+                    }`}>
+                    <CalendarDays size={12} className={s.isCurrent ? 'text-emerald-400' : 'text-slate-400'} />
+                    <span className="truncate">{s.name}</span>
+                    {s.isCurrent && <span className="text-[9px] ml-auto px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-500 font-medium">Current</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* "Select a school" prompt for platform users with no school */}
+        {isPlatform && !selectedSchool && (
+          <div className="px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <p className="text-[10px] text-amber-400 font-medium">⚠ Select a school to access school data</p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const sidebarContent = (isMobile = false) => (
     <>
@@ -86,6 +236,9 @@ export default function Sidebar() {
         )}
       </div>
 
+      {/* School & Session Context */}
+      <SchoolContextSection isMobile={isMobile} />
+
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5 scrollbar-thin">
         {filteredNavItems.map((item, i) => {
           if (item.divider) {
@@ -96,6 +249,19 @@ export default function Sidebar() {
           }
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
+          // Disable school-required items when platform user has no school selected
+          const isDisabled = isPlatform && item.schoolRequired && !selectedSchool;
+
+          if (isDisabled) {
+            return (
+              <div key={item.path} title={collapsed && !isMobile ? `${item.label} (select school first)` : undefined}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-300 dark:text-dark-600 cursor-not-allowed opacity-50">
+                <Icon size={17} className="shrink-0 text-slate-300 dark:text-dark-600" />
+                {(!collapsed || isMobile) && <span className="truncate">{item.label}</span>}
+              </div>
+            );
+          }
+
           return (
             <NavLink key={item.path} to={item.path} title={collapsed && !isMobile ? item.label : undefined}
               className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-200 group

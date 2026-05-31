@@ -300,10 +300,10 @@ exports.seedData = async (req, res, next) => {
         // Core subjects (ENG, HIN, MAT, PE, ART, MUS, MS, CLAB) → empty = all classes
 
         await CanTeach.findOneAndUpdate(
-          { ...scope, teacher: teacher._id, subject: cap.subject, role: 'primary' },
+          { ...scope, teacher: teacher._id, subject: cap.subject, eligibilityType: 'primary' },
           {
             ...scope, teacher: teacher._id, subject: cap.subject,
-            role: 'primary', priority: 8,
+            eligibilityType: 'primary', priority: 8,
             eligibleClasses, eligibleStreams,
             eligibleSections: [], isActive: true
           },
@@ -314,10 +314,10 @@ exports.seedData = async (req, res, next) => {
         // Cross-department secondary: Science teachers → Science Lab
         if (['SCI'].includes(code) && teacher.department !== 'Lab') {
           await CanTeach.findOneAndUpdate(
-            { ...scope, teacher: teacher._id, subject: subjectMap['SLAB'], role: 'secondary' },
+            { ...scope, teacher: teacher._id, subject: subjectMap['SLAB'], eligibilityType: 'secondary' },
             {
               ...scope, teacher: teacher._id, subject: subjectMap['SLAB'],
-              role: 'secondary', priority: 4,
+              eligibilityType: 'secondary', priority: 4,
               eligibleClasses: [...middleClasses, ...secondaryClasses],
               eligibleStreams: [], eligibleSections: [], isActive: true
             },

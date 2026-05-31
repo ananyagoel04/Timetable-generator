@@ -15,6 +15,9 @@ export default function Substitutions() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({ originalTeacher: '', substituteTeacher: '', class: '', subject: '', date: '', period: 1, notes: '' });
+  const [bulkModal, setBulkModal] = useState(false);
+  const [bulkForm, setBulkForm] = useState({ teachers: '', date: new Date().toISOString().split('T')[0], absenceType: 'full_day', reason: '' });
+  const [bulkResult, setBulkResult] = useState(null);
 
   // Daily sheet state
   const [view, setView] = useState('list'); // 'list' | 'daily'
@@ -145,6 +148,9 @@ export default function Substitutions() {
             </button>
           </div>
           <PermissionGate permissions={['approve_substitutions']}>
+            <button onClick={() => { setBulkForm({ teachers: '', date: new Date().toISOString().split('T')[0], absenceType: 'full_day', reason: '' }); setBulkResult(null); setBulkModal(true); }} className="btn-secondary flex items-center gap-2 text-sm">
+              <Users size={16} />Bulk Absence
+            </button>
             <button onClick={() => { setForm({ originalTeacher: '', substituteTeacher: '', class: '', subject: '', date: '', period: 1, notes: '' }); setAvailable([]); setModalOpen(true); }} className="btn-primary flex items-center gap-2 text-sm">
               <Plus size={16} />New Substitution
             </button>
@@ -178,10 +184,21 @@ export default function Substitutions() {
           <div className="glass-card overflow-hidden">
             {dailyLoading ? (
               <div className="p-12 text-center text-slate-500 dark:text-dark-400">Loading...</div>
-            ) : !dailyData || dailyData.count === 0 ? (
+            ) : !dailyData || (dailyData.count === 0 && !dailyData.absencesCount) ? (
               <div className="p-12 text-center">
                 <Calendar size={40} className="mx-auto text-slate-300 dark:text-dark-600 mb-3" />
                 <p className="text-slate-500 dark:text-dark-400">No substitutions for {new Date(dailyDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+              </div>
+            ) : dailyData.count === 0 && dailyData.absencesCount > 0 ? (
+              <div className="p-8 text-center space-y-3">
+                <AlertTriangle size={36} className="mx-auto text-amber-400 mb-2" />
+                <p className="text-amber-400 font-medium">{dailyData.absencesCount} teacher{dailyData.absencesCount > 1 ? 's' : ''} absent but no substitutions assigned</p>
+                <p className="text-xs text-slate-500 dark:text-dark-400">Create substitutions to cover the absent teachers' periods.</p>
+                <PermissionGate permissions={['approve_substitutions']}>
+                  <button onClick={() => { setForm({ originalTeacher: '', substituteTeacher: '', class: '', subject: '', date: dailyDate, period: 1, notes: '' }); setAvailable([]); setModalOpen(true); }} className="btn-primary text-sm inline-flex items-center gap-1.5 mt-2">
+                    <Plus size={14} />Create Substitution
+                  </button>
+                </PermissionGate>
               </div>
             ) : (
               <table className="w-full">
@@ -388,6 +405,70 @@ export default function Substitutions() {
         confirmText="Approve"
         variant="default"
       />
+
+      {/* Bulk Absence Modal */}
+      <Modal isOpen={bulkModal} onClose={() => setBulkModal(false)} title="Bulk Mark Absent" size="md">
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          try {
+            const r = await api.post('/absences/bulk', bulkForm);
+            setBulkResult(r.data?.data);
+            toast.success(`${r.data?.data?.created?.length || 0} absences created`);
+          } catch (err) { toast.error(err.response?.data?.error || err.message); }
+        }} className="space-y-4">
+          <div>
+            <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Teacher Names (comma-separated)</label>
+            <textarea value={bulkForm.teachers} onChange={e => setBulkForm(f => ({...f, teachers: e.target.value}))}
+              className="input-field" rows={4} placeholder="e.g., Sunita Sharma, Rajesh Kumar, Priya Singh"
+              required />
+            {bulkForm.teachers && (
+              <p className="text-[10px] text-primary-500 mt-1">
+                {bulkForm.teachers.split(',').map(t => t.trim()).filter(Boolean).length} teacher(s) entered
+              </p>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Date</label>
+              <input type="date" value={bulkForm.date} onChange={e => setBulkForm(f => ({...f, date: e.target.value}))} className="input-field" required /></div>
+            <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Absence Type</label>
+              <select value={bulkForm.absenceType} onChange={e => setBulkForm(f => ({...f, absenceType: e.target.value}))} className="select-field">
+                <option value="full_day">Full Day</option>
+                <option value="selected_periods">Selected Periods</option>
+                <option value="half_day_morning">Half Day (Morning)</option>
+                <option value="half_day_afternoon">Half Day (Afternoon)</option>
+              </select></div>
+          </div>
+          <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Reason (optional)</label>
+            <input value={bulkForm.reason} onChange={e => setBulkForm(f => ({...f, reason: e.target.value}))} className="input-field" placeholder="e.g., Staff meeting, Training" /></div>
+
+          {bulkResult && (
+            <div className="rounded-xl border border-slate-200 dark:border-dark-700 p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle size={14} className="text-emerald-500" />
+                <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">{bulkResult.created?.length || 0} absences created</span>
+              </div>
+              {bulkResult.created?.length > 0 && (
+                <div className="text-xs text-slate-500 dark:text-dark-400 space-y-0.5">
+                  {bulkResult.created.map((c, i) => <p key={i}>✓ {c.teacher?.name}</p>)}
+                </div>
+              )}
+              {bulkResult.unresolved?.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs font-medium text-amber-500 flex items-center gap-1"><AlertTriangle size={12} />{bulkResult.unresolved.length} not found:</p>
+                  <div className="text-xs text-amber-400/70 space-y-0.5 mt-1">
+                    {bulkResult.unresolved.map((u, i) => <p key={i}>✗ {u}</p>)}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={() => setBulkModal(false)} className="btn-secondary">Close</button>
+            <button type="submit" className="btn-primary">Mark Absent</button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

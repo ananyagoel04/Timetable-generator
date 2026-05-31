@@ -371,6 +371,110 @@ class ManualTimetableService {
     return { timetable: tt, blocks, completenessScore: completeness };
   }
 
+  /**
+   * Bulk assign a lesson across multiple days.
+   */
+  async bulkAssign({ timetableId, schoolId, sessionId, userId, assignment }) {
+    const tt = await this._getTimetable(timetableId, schoolId);
+    const { classId, subjectId, teacherId, roomId, days, period, duration = 1, type = 'normal', overwriteExisting = false, skipConflicts = true } = assignment;
+
+    const results = { created: [], skipped: [], conflicts: [], overwritten: [], failed: [] };
+
+    for (const day of days) {
+      try {
+        const lesson = { classId, subjectId, teacherId, roomId, day, period, duration, type };
+        const periods = Array.from({ length: duration }, (_, i) => period + i);
+
+        // Check for existing block at this slot
+        const existingQuery = { timetable: timetableId, classes: classId, day, periods: { $in: periods } };
+        const existing = await LessonBlock.findOne(existingQuery);
+
+        if (existing && !overwriteExisting) {
+          if (skipConflicts) {
+            results.skipped.push({ day, period, reason: `Slot already occupied by ${existing.subject?.toString() || 'a lesson'}` });
+            continue;
+          } else {
+            results.conflicts.push({ day, period, reason: 'Slot occupied', existingBlockId: existing._id.toString() });
+            continue;
+          }
+        }
+
+        // Validate
+        const validation = await validator.validate({
+          timetableId, schoolId, sessionId, lesson,
+          excludeBlockId: existing && overwriteExisting ? existing._id : undefined
+        });
+
+        if (validation.status === 'blocked') {
+          const reason = validation.messages.filter(m => m.type === 'blocked').map(m => m.message).join('; ');
+          results.conflicts.push({ day, period, reason, messages: validation.messages });
+          continue;
+        }
+
+        // Overwrite if needed
+        if (existing && overwriteExisting) {
+          await LessonBlock.deleteOne({ _id: existing._id });
+          results.overwritten.push({ day, period, deletedBlockId: existing._id.toString() });
+        }
+
+        // Create the block
+        const block = await LessonBlock.create({
+          school: schoolId,
+          timetable: timetableId,
+          type: type || 'normal',
+          duration,
+          subject: subjectId,
+          teacher: teacherId,
+          room: roomId,
+          classes: classId ? [classId] : [],
+          day,
+          periods,
+          source: 'manual',
+          manuallyCreatedBy: userId,
+          manualReason: 'Bulk assignment',
+          validationStatus: validation.status,
+          warningCodes: validation.messages.filter(m => m.type === 'warning').map(m => m.code),
+          isDraft: true
+        });
+
+        results.created.push({ day, period, blockId: block._id.toString(), warnings: validation.messages.filter(m => m.type === 'warning') });
+      } catch (err) {
+        results.failed.push({ day, period, reason: err.message });
+      }
+    }
+
+    // Update stats
+    const totalBlocks = await LessonBlock.countDocuments({ timetable: timetableId });
+    tt.stats.placedBlocks = totalBlocks;
+    tt.stats.totalBlocks = totalBlocks;
+    await tt.save();
+
+    // Audit
+    await this._audit(schoolId, sessionId, userId, 'manual_bulk_assign', 'timetable', timetableId, tt.name, {
+      summary: {
+        total: days.length,
+        created: results.created.length,
+        skipped: results.skipped.length,
+        conflicts: results.conflicts.length,
+        overwritten: results.overwritten.length,
+        failed: results.failed.length
+      }
+    });
+
+    return {
+      success: true,
+      ...results,
+      summary: {
+        total: days.length,
+        created: results.created.length,
+        skipped: results.skipped.length,
+        conflicts: results.conflicts.length,
+        overwritten: results.overwritten.length,
+        failed: results.failed.length
+      }
+    };
+  }
+
   // ── Internal helpers ──
 
   async _getTimetable(timetableId, schoolId) {

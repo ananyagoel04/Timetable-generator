@@ -7,16 +7,19 @@ const Teacher = require('../models/Teacher');
 const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
 
-const getScope = async () => {
-  const school = await School.findOne();
-  const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
-  return { school: school?._id, session: session?._id };
+const getScope = async (req) => {
+  const schoolId = req.schoolId;
+  const sessionId = req.sessionId;
+  let session = null;
+  if (sessionId) session = await AcademicSession.findById(sessionId);
+  else if (schoolId) session = await AcademicSession.findOne({ school: schoolId, isCurrent: true });
+  return { school: schoolId, session: session?._id };
 };
 
 // --- Subject Requirements ---
 exports.getRequirements = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const filter = { school: scope.school, session: scope.session };
 
     // Advanced filtering
@@ -50,7 +53,7 @@ exports.getRequirements = async (req, res, next) => {
 
 exports.createRequirement = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const req_ = await SubjectRequirement.create({ ...req.body, ...scope });
     res.status(201).json({ success: true, data: req_ });
   } catch (err) { next(err); }
@@ -74,7 +77,7 @@ exports.deleteRequirement = async (req, res, next) => {
 // --- Bulk Operations ---
 exports.bulkCreateRequirements = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const { classIds, subject, teacher, periodsPerWeek, ...otherFields } = req.body;
 
     if (!classIds || !Array.isArray(classIds) || classIds.length === 0) {
@@ -129,7 +132,7 @@ exports.bulkUpdateRequirements = async (req, res, next) => {
 
 exports.cloneRequirements = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const { sourceClassId, targetClassIds, teacherMapping } = req.body;
 
     if (!sourceClassId) {
@@ -186,7 +189,7 @@ exports.cloneRequirements = async (req, res, next) => {
 
 exports.getWorkloadSummary = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const schoolId = req.query.school || scope.school;
     const sessionId = req.query.session || scope.session;
 
@@ -263,7 +266,7 @@ exports.getWorkloadSummary = async (req, res, next) => {
 // --- Combination Rules ---
 exports.getCombinationRules = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const rules = await SubjectCombinationRule.find({ school: scope.school, session: scope.session })
       .populate('subject teacher room appliesTo.class');
     res.json({ success: true, count: rules.length, data: rules });
@@ -272,7 +275,7 @@ exports.getCombinationRules = async (req, res, next) => {
 
 exports.createCombinationRule = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const rule = await SubjectCombinationRule.create({ ...req.body, ...scope });
     res.status(201).json({ success: true, data: rule });
   } catch (err) { next(err); }
@@ -296,7 +299,7 @@ exports.deleteCombinationRule = async (req, res, next) => {
 // --- Reserved Period Rules ---
 exports.getReservedRules = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const rules = await ReservedPeriodRule.find({ school: scope.school, session: scope.session }).populate('subject teacher room');
     res.json({ success: true, count: rules.length, data: rules });
   } catch (err) { next(err); }
@@ -304,7 +307,7 @@ exports.getReservedRules = async (req, res, next) => {
 
 exports.createReservedRule = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const rule = await ReservedPeriodRule.create({ ...req.body, ...scope });
     res.status(201).json({ success: true, data: rule });
   } catch (err) { next(err); }
@@ -325,7 +328,7 @@ exports.deleteReservedRule = async (req, res, next) => {
 // --- Custom Rules ---
 exports.getCustomRules = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const rules = await CustomRule.find({ school: scope.school });
     res.json({ success: true, count: rules.length, data: rules });
   } catch (err) { next(err); }
@@ -333,7 +336,7 @@ exports.getCustomRules = async (req, res, next) => {
 
 exports.createCustomRule = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const rule = await CustomRule.create({ ...req.body, school: scope.school });
     res.status(201).json({ success: true, data: rule });
   } catch (err) { next(err); }

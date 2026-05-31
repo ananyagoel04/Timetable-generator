@@ -8,10 +8,16 @@ const AuditLog = require('../models/AuditLog');
 const School = require('../models/School');
 const AcademicSession = require('../models/AcademicSession');
 
-const getScope = async () => {
-  const school = await School.findOne();
-  const session = await AcademicSession.findOne({ school: school?._id, isCurrent: true });
-  return { school: school?._id, session: session?._id };
+const getScope = async (req) => {
+  const schoolId = req.schoolId;
+  const sessionId = req.sessionId;
+  let session = null;
+  if (sessionId) {
+    session = await AcademicSession.findById(sessionId);
+  } else if (schoolId) {
+    session = await AcademicSession.findOne({ school: schoolId, isCurrent: true });
+  }
+  return { school: schoolId, session: session?._id };
 };
 
 const DAYS_MAP = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -42,7 +48,7 @@ function getDateRange(start, end) {
  */
 exports.createAbsence = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const { teacher, date, absenceType, endDate, affectedPeriods, reason } = req.body;
 
     if (!teacher || !date) {
@@ -265,7 +271,7 @@ exports.createAbsence = async (req, res, next) => {
  */
 exports.getAbsences = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const filter = { school: scope.school };
 
     if (req.query.teacher) filter.teacher = req.query.teacher;
@@ -441,7 +447,7 @@ exports.manualResolve = async (req, res, next) => {
  */
 exports.getUnresolvedPeriods = async (req, res, next) => {
   try {
-    const scope = await getScope();
+    const scope = await getScope(req);
     const absences = await Absence.find({
       school: scope.school,
       status: { $in: ['active', 'partial'] },
@@ -468,5 +474,78 @@ exports.getUnresolvedPeriods = async (req, res, next) => {
     });
 
     res.json({ success: true, count: result.length, data: result });
+  } catch (err) { next(err); }
+};
+
+/**
+ * Create bulk absences from comma-separated teacher names/emails/IDs
+ */
+exports.createBulkAbsence = async (req, res, next) => {
+  try {
+    const scope = await getScope(req);
+    const { teachers, date, absenceType, endDate, affectedPeriods, reason } = req.body;
+
+    if (!teachers || !date) {
+      return res.status(400).json({ success: false, error: 'teachers and date are required' });
+    }
+
+    // Parse comma-separated string or accept array
+    let teacherInputs = [];
+    if (typeof teachers === 'string') {
+      teacherInputs = teachers.split(',').map(t => t.trim()).filter(Boolean);
+    } else if (Array.isArray(teachers)) {
+      teacherInputs = teachers.map(t => (typeof t === 'string' ? t.trim() : t)).filter(Boolean);
+    }
+
+    // Deduplicate
+    teacherInputs = [...new Set(teacherInputs)];
+
+    if (teacherInputs.length === 0) {
+      return res.status(400).json({ success: false, error: 'No teacher names provided' });
+    }
+
+    // Resolve each input against Teacher collection
+    const allTeachers = await Teacher.find({ school: scope.school, status: 'active' });
+    const created = [];
+    const unresolved = [];
+
+    for (const input of teacherInputs) {
+      // Try matching by: name (case-insensitive), email, employeeId, or _id
+      const match = allTeachers.find(t =>
+        t.name?.toLowerCase() === input.toLowerCase() ||
+        t.email?.toLowerCase() === input.toLowerCase() ||
+        t.employeeId === input ||
+        t._id.toString() === input
+      );
+
+      if (!match) {
+        unresolved.push(input);
+        continue;
+      }
+
+      try {
+        const absence = await Absence.create({
+          school: scope.school,
+          session: scope.session,
+          teacher: match._id,
+          date: new Date(date),
+          endDate: endDate ? new Date(endDate) : undefined,
+          absenceType: absenceType || 'full_day',
+          affectedPeriods: affectedPeriods || [],
+          reason: reason || '',
+          status: 'active',
+          createdBy: req.user?._id,
+          autoReplacementAttempted: false
+        });
+        created.push({ absenceId: absence._id, teacher: { _id: match._id, name: match.name } });
+      } catch (err) {
+        unresolved.push(`${input} (error: ${err.message})`);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      data: { created, unresolved, totalInput: teacherInputs.length }
+    });
   } catch (err) { next(err); }
 };

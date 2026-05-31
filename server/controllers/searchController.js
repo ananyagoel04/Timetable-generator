@@ -21,7 +21,7 @@ exports.globalSearch = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Search query must be at least 2 characters' });
     }
 
-    const school = await School.findOne();
+    const school = req.schoolId ? await School.findById(req.schoolId) : null;
     if (!school) return res.status(404).json({ success: false, error: 'School not found' });
 
     const regex = new RegExp(q.trim(), 'i');

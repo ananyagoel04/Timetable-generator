@@ -38,7 +38,7 @@ export default function CustomRules() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({
     name: '', type: 'max_subject_per_day', severity: 'soft', isActive: true,
-    config: {}, subject: '', teacher: '', day: '', value: 2
+    config: {}, subject: '', subjects: [], teacher: '', day: '', value: 2
   });
 
   useEffect(() => {
@@ -59,7 +59,8 @@ export default function CustomRules() {
         severity: form.severity,
         isActive: form.isActive,
         config: {
-          subject: form.subject || undefined,
+          subject: isMultiSubject ? undefined : (form.subject || undefined),
+          subjects: isMultiSubject && form.subjects.length ? form.subjects : undefined,
           teacher: form.teacher || undefined,
           day: form.day || undefined,
           value: form.value
@@ -89,6 +90,7 @@ export default function CustomRules() {
   };
 
   const needsSubject = ['max_subject_per_day','morning_preference','afternoon_preference','no_consecutive','subject_not_on_day','pair_subjects','even_distribution','lab_after_theory'].includes(form.type);
+  const isMultiSubject = ['morning_preference','afternoon_preference'].includes(form.type);
   const needsTeacher = ['teacher_max_continuous','teacher_not_on_day'].includes(form.type);
   const needsDay = ['subject_not_on_day','teacher_not_on_day'].includes(form.type);
   const needsValue = ['max_subject_per_day','teacher_max_continuous'].includes(form.type);
@@ -97,7 +99,7 @@ export default function CustomRules() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div><h1 className="page-title">Rules & Preferences</h1><p className="page-subtitle">{rules.length} custom rules · {rules.filter(r => r.isActive).length} active</p></div>
-        <button onClick={() => { setForm({ name: '', type: 'max_subject_per_day', severity: 'soft', isActive: true, config: {}, subject: '', teacher: '', day: '', value: 2 }); setModalOpen(true); }} className="btn-primary flex items-center gap-2"><Plus size={18} /> Add Rule</button>
+        <button onClick={() => { setForm({ name: '', type: 'max_subject_per_day', severity: 'soft', isActive: true, config: {}, subject: '', subjects: [], teacher: '', day: '', value: 2 }); setModalOpen(true); }} className="btn-primary flex items-center gap-2"><Plus size={18} /> Add Rule</button>
       </div>
 
       {/* Rule Templates */}
@@ -170,10 +172,25 @@ export default function CustomRules() {
               </select>
             </div>
           </div>
-          {needsSubject && <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Subject</label>
+          {needsSubject && !isMultiSubject && <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Subject</label>
             <select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} className="select-field">
               <option value="">All subjects</option>{subjects.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
             </select>
+          </div>}
+          {isMultiSubject && <div>
+            <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Select Subjects (multi-select)</label>
+            <div className="max-h-48 overflow-y-auto border border-slate-200 dark:border-dark-700 rounded-xl p-2 space-y-1 scrollbar-thin">
+              {subjects.map(s => (
+                <label key={s._id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-dark-800/50 has-[:checked]:bg-primary-50 dark:has-[:checked]:bg-primary-900/20 transition-all">
+                  <input type="checkbox" checked={form.subjects.includes(s._id)} onChange={e => {
+                    setForm(f => ({ ...f, subjects: e.target.checked ? [...f.subjects, s._id] : f.subjects.filter(id => id !== s._id) }));
+                  }} className="w-4 h-4 rounded accent-primary-500" />
+                  <span className="text-sm text-slate-700 dark:text-dark-200">{s.name}</span>
+                  {s.type && <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-dark-700 text-slate-400 dark:text-dark-500">{s.type}</span>}
+                </label>
+              ))}
+            </div>
+            {form.subjects.length > 0 && <p className="text-[10px] text-primary-500 mt-1">{form.subjects.length} selected</p>}
           </div>}
           {needsTeacher && <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Teacher</label>
             <select value={form.teacher} onChange={e => setForm(f => ({ ...f, teacher: e.target.value }))} className="select-field">

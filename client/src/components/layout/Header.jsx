@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Bell, Search, Check, X, Loader2, Users, School, BookOpen, DoorOpen, FileText, Calendar, Shield, Settings, UserMinus, ArrowRight, Command, Clock } from 'lucide-react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
 const pageTitles = {
@@ -33,6 +34,7 @@ const typeRoutes = {
 export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { sessionName } = useAuth();
   const title = pageTitles[location.pathname] || 'TimeCraft';
 
   // Search state
@@ -153,7 +155,7 @@ export default function Header() {
         <div className="flex items-center justify-between h-14 sm:h-16 px-4 sm:px-6">
           <div className="min-w-0">
             <h2 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-dark-50 truncate">{title}</h2>
-            <p className="text-[10px] sm:text-xs text-slate-500 dark:text-dark-400 hidden sm:block">Academic Year 2025–26</p>
+            <p className="text-[10px] sm:text-xs text-slate-500 dark:text-dark-400 hidden sm:block">Academic Year {sessionName || '—'}</p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             {/* Search trigger */}
