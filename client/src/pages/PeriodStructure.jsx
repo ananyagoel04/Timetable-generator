@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react';
-import { Clock, Coffee, Utensils, Flag, Plus, Copy, Trash2, Check, Archive, GripVertical, Users, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Clock, Coffee, Utensils, Flag, Plus, Copy, Trash2, Check, Archive, Users, ChevronDown, Eye, EyeOff, Layers } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
+import PeriodOverride from '../components/PeriodOverride';
+import TimetablePreview from '../components/TimetablePreview';
+import { dedupeBreaks, DAY_NAMES } from '../utils/breakUtils';
 import toast from 'react-hot-toast';
 
 const slotTypeConfig = {
@@ -21,15 +24,26 @@ const templateBadge = {
 export default function PeriodStructure() {
   const [structures, setStructures] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [slots, setSlots] = useState([]);
   const [classes, setClasses] = useState([]);
   const [assignedClasses, setAssignedClasses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [createModal, setCreateModal] = useState(false);
   const [assignModal, setAssignModal] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: '', templateType: 'default', description: '', workingDays: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] });
-  const [saturdayEnabled, setSaturdayEnabled] = useState(false);
-  const [saturdaySlots, setSaturdaySlots] = useState([]);
+  const [showPreview, setShowPreview] = useState(true);
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    templateType: 'default',
+    description: '',
+    workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  });
+
+  // Editable state
+  const [defaultTemplate, setDefaultTemplate] = useState([]);
+  const [dayOverrides, setDayOverrides] = useState({});
+  const [workingDays, setWorkingDays] = useState([]);
+  const [previewDay, setPreviewDay] = useState(null); // null = default
 
   useEffect(() => {
     loadStructures();
@@ -38,53 +52,76 @@ export default function PeriodStructure() {
 
   const loadStructures = async () => {
     setLoading(true);
-    const r = await api.get('/setup/period-structures');
-    const list = r.data || [];
-    setStructures(list);
-    if (list.length > 0 && !selected) selectStructure(list[0]);
+    try {
+      const r = await api.get('/setup/period-structures');
+      const list = r.data || [];
+      setStructures(list);
+      if (list.length > 0 && !selected) selectStructure(list[0]);
+    } catch (err) {
+      toast.error('Failed to load structures');
+    }
     setLoading(false);
   };
 
   const selectStructure = (s) => {
     setSelected(s);
-    setSlots(s.timeslots || []);
+    setDefaultTemplate(s.defaultDayTemplate || s.timeslots || []);
     setAssignedClasses(s.assignedTo?.classes?.map(c => c._id || c) || []);
-    setSaturdayEnabled(s.saturdayConfig?.enabled || false);
-    setSaturdaySlots(s.saturdayConfig?.timeslots || []);
+    setWorkingDays(s.workingDays || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']);
+    setDirty(false);
+
+    // Parse dayOverrides from Map
+    const overrides = {};
+    if (s.dayOverrides) {
+      // Handle both Map-like object and plain object
+      const entries = s.dayOverrides instanceof Map
+        ? [...s.dayOverrides.entries()]
+        : Object.entries(s.dayOverrides);
+      entries.forEach(([day, slots]) => {
+        if (slots && slots.length > 0) overrides[day] = slots;
+      });
+    }
+    setDayOverrides(overrides);
+    setPreviewDay(null);
   };
 
-  const addSlot = (type = 'period') => {
-    const last = slots[slots.length - 1];
-    const start = last ? last.endTime : '08:00';
-    const dur = type === 'period' ? 40 : type === 'lunch' ? 40 : 20;
-    const [h, m] = start.split(':').map(Number);
-    const endMin = h * 60 + m + dur;
-    const end = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
-    setSlots([...slots, { label: type === 'period' ? `Period ${slots.filter(s => s.type === 'period').length + 1}` : type === 'lunch' ? 'Lunch Break' : type === 'break' ? 'Short Break' : type.charAt(0).toUpperCase() + type.slice(1), slotNumber: slots.length + 1, startTime: start, endTime: end, type, isSchedulable: type === 'period' }]);
-  };
-
-  const updateSlot = (i, field, value) => {
-    const updated = [...slots];
-    updated[i] = { ...updated[i], [field]: value };
-    if (field === 'type') updated[i].isSchedulable = value === 'period';
-    setSlots(updated);
-  };
-
-  const removeSlot = (i) => {
-    const updated = slots.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, slotNumber: idx + 1 }));
-    setSlots(updated);
-  };
+  const handleSlotsChange = useCallback((dayName, newSlots) => {
+    if (dayName === null) {
+      // Updating default template
+      setDefaultTemplate(newSlots || []);
+    } else if (newSlots === null) {
+      // Remove override for this day
+      setDayOverrides(prev => {
+        const next = { ...prev };
+        delete next[dayName];
+        return next;
+      });
+    } else {
+      // Set override for this day
+      setDayOverrides(prev => ({ ...prev, [dayName]: newSlots }));
+    }
+    setDirty(true);
+    // Update preview to show the day being edited
+    setPreviewDay(dayName);
+  }, []);
 
   const saveStructure = async () => {
     if (!selected) return;
+    setSaving(true);
     try {
       await api.put(`/setup/period-structures/${selected._id}`, {
-        timeslots: slots,
-        saturdayConfig: { enabled: saturdayEnabled, timeslots: saturdaySlots }
+        defaultDayTemplate: defaultTemplate,
+        timeslots: defaultTemplate, // backward compat
+        dayOverrides: dayOverrides,
+        workingDays: workingDays,
       });
       toast.success('Structure saved');
+      setDirty(false);
       loadStructures();
-    } catch (err) { toast.error(err.message); }
+    } catch (err) {
+      toast.error(err.message || 'Failed to save');
+    }
+    setSaving(false);
   };
 
   const createStructure = async (e) => {
@@ -129,24 +166,45 @@ export default function PeriodStructure() {
     setAssignedClasses(prev => prev.includes(cid) ? prev.filter(id => id !== cid) : [...prev, cid]);
   };
 
-  const getDuration = (start, end) => {
-    const [h1, m1] = start.split(':').map(Number);
-    const [h2, m2] = end.split(':').map(Number);
-    return (h2 * 60 + m2) - (h1 * 60 + m1);
+  const toggleWorkingDay = (day) => {
+    setWorkingDays(prev => {
+      const next = prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day];
+      setDirty(true);
+      return next;
+    });
   };
 
-  const totalMinutes = slots.reduce((sum, s) => sum + getDuration(s.startTime, s.endTime), 0);
-  const teachingPeriods = slots.filter(s => s.isSchedulable).length;
+  // Preview slots (with break deduplication)
+  const previewSlots = useMemo(() => {
+    if (previewDay && dayOverrides[previewDay]) {
+      return dedupeBreaks(dayOverrides[previewDay]);
+    }
+    return dedupeBreaks(defaultTemplate);
+  }, [previewDay, dayOverrides, defaultTemplate]);
 
   if (loading) return <div className="text-center py-16 text-slate-500 dark:text-dark-400">Loading...</div>;
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div><h1 className="page-title">Period & Break Structure</h1><p className="page-subtitle">{structures.length} structure{structures.length !== 1 ? 's' : ''} · {selected ? `Editing: ${selected.name}` : 'Select a structure'}</p></div>
+        <div>
+          <h1 className="page-title">Period & Break Structure</h1>
+          <p className="page-subtitle">
+            {structures.length} structure{structures.length !== 1 ? 's' : ''} · {selected ? `Editing: ${selected.name}` : 'Select a structure'}
+          </p>
+        </div>
         <div className="flex gap-2">
-          <button onClick={() => setCreateModal(true)} className="btn-primary flex items-center gap-2"><Plus size={16} /> New Structure</button>
-          {selected && <button onClick={saveStructure} className="btn-secondary flex items-center gap-2"><Check size={16} /> Save</button>}
+          <button
+            onClick={() => setShowPreview(!showPreview)}
+            className="btn-secondary flex items-center gap-2 text-xs"
+          >
+            {showPreview ? <EyeOff size={14} /> : <Eye size={14} />}
+            {showPreview ? 'Hide' : 'Show'} Preview
+          </button>
+          <button onClick={() => setCreateModal(true)} className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> New Structure
+          </button>
         </div>
       </div>
 
@@ -159,7 +217,15 @@ export default function PeriodStructure() {
               <p className="text-sm font-semibold text-slate-900 dark:text-dark-50 truncate">{s.name}</p>
               <span className={templateBadge[s.templateType] || 'badge'}>{s.templateType}</span>
             </div>
-            <p className="text-xs text-slate-400 dark:text-dark-500 mb-2">{s.timeslots?.length || 0} slots · {s.timeslots?.filter(t => t.isSchedulable).length || 0} teaching</p>
+            <p className="text-xs text-slate-400 dark:text-dark-500 mb-2">
+              {(s.defaultDayTemplate || s.timeslots)?.length || 0} slots ·{' '}
+              {(s.defaultDayTemplate || s.timeslots)?.filter(t => t.isSchedulable).length || 0} teaching
+              {s.dayOverrides && Object.keys(s.dayOverrides).length > 0 && (
+                <span className="ml-1 text-amber-400">
+                  · {Object.keys(s.dayOverrides).length} override{Object.keys(s.dayOverrides).length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </p>
             <div className="flex items-center justify-between">
               <span className={`text-[10px] px-2 py-0.5 rounded ${s.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : s.status === 'draft' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-200 dark:bg-dark-700 text-slate-400 dark:text-dark-500'}`}>{s.status}</span>
               <div className="flex gap-1">
@@ -174,86 +240,94 @@ export default function PeriodStructure() {
         ))}
       </div>
 
-      {selected && <>
-        {/* Assignment */}
-        <div className="glass-card p-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-slate-900 dark:text-dark-50">Assigned Classes</p>
-            <p className="text-xs text-slate-500 dark:text-dark-400">{assignedClasses.length} class{assignedClasses.length !== 1 ? 'es' : ''} using this structure</p>
-          </div>
-          <button onClick={() => setAssignModal(true)} className="btn-secondary text-sm"><Users size={14} className="inline mr-1" /> Manage</button>
-        </div>
-
-        {/* Visual Timeline */}
-        <div className="glass-card p-4">
-          <p className="text-xs font-semibold text-slate-500 dark:text-dark-400 mb-3">Daily Timeline — {totalMinutes} min total · {teachingPeriods} teaching periods</p>
-          <div className="flex rounded-xl overflow-hidden h-10 bg-white dark:bg-dark-800">
-            {slots.map((slot, i) => {
-              const dur = getDuration(slot.startTime, slot.endTime);
-              const pct = (dur / totalMinutes) * 100;
-              const cfg = slotTypeConfig[slot.type] || slotTypeConfig.period;
-              return (
-                <div key={i} className={`${cfg.bg} flex items-center justify-center border-r border-slate-300/30 dark:border-dark-700/30 text-[9px] font-medium ${cfg.color} overflow-hidden`}
-                  style={{ width: `${pct}%` }} title={`${slot.label} (${slot.startTime}–${slot.endTime})`}>
-                  {pct > 5 && slot.label.slice(0, 8)}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Editable Slot List */}
-        <div className="glass-card p-4 space-y-2">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-semibold text-slate-500 dark:text-dark-400">Slot Configuration</p>
-            <div className="flex gap-2">
-              {Object.entries(slotTypeConfig).map(([type, cfg]) => {
-                const Icon = cfg.icon;
-                return <button key={type} onClick={() => addSlot(type)} className={`text-[10px] px-2 py-1 rounded-lg ${cfg.bg} ${cfg.color} hover:opacity-80`}><Icon size={10} className="inline mr-1" />+ {type}</button>;
-              })}
-            </div>
-          </div>
-          {slots.map((slot, i) => {
-            const cfg = slotTypeConfig[slot.type] || slotTypeConfig.period;
-            const Icon = cfg.icon;
-            return (
-              <div key={i} className="flex items-center gap-2 p-2 rounded-xl bg-white/40 dark:bg-dark-800/40 border border-slate-300/30 dark:border-dark-700/30">
-                <GripVertical size={14} className="text-slate-400 dark:text-dark-600 shrink-0 cursor-grab" />
-                <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${cfg.bg} shrink-0`}><Icon size={12} className={cfg.color} /></span>
-                <input value={slot.label} onChange={e => updateSlot(i, 'label', e.target.value)} className="input-field text-xs py-1.5 flex-1 min-w-[100px]" />
-                <select value={slot.type} onChange={e => updateSlot(i, 'type', e.target.value)} className="select-field text-xs py-1.5 w-24">
-                  {Object.keys(slotTypeConfig).map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <input value={slot.startTime} onChange={e => updateSlot(i, 'startTime', e.target.value)} type="time" className="input-field text-xs py-1.5 w-24" />
-                <input value={slot.endTime} onChange={e => updateSlot(i, 'endTime', e.target.value)} type="time" className="input-field text-xs py-1.5 w-24" />
-                <label className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-dark-400 shrink-0">
-                  <input type="checkbox" checked={slot.isSchedulable} onChange={e => updateSlot(i, 'isSchedulable', e.target.checked)} className="rounded" /> Teach
-                </label>
-                <button onClick={() => removeSlot(i)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-slate-400 dark:text-dark-500 hover:text-red-400 shrink-0"><Trash2 size={14} /></button>
+      {selected && (
+        <>
+          {/* Working Days Selector */}
+          <div className="glass-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-medium text-slate-900 dark:text-dark-50">Working Days</p>
+                <p className="text-xs text-slate-500 dark:text-dark-400">Select which days this structure applies to</p>
               </div>
-            );
-          })}
-        </div>
+              <button onClick={() => setAssignModal(true)} className="btn-secondary text-sm">
+                <Users size={14} className="inline mr-1" /> Assign Classes
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {DAY_NAMES.slice(1).concat(DAY_NAMES.slice(0, 1)).map(day => (
+                <button
+                  key={day}
+                  onClick={() => toggleWorkingDay(day)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    workingDays.includes(day)
+                      ? 'bg-primary-600 text-white shadow-md'
+                      : 'bg-slate-100 dark:bg-dark-800 text-slate-400 dark:text-dark-500 hover:bg-slate-200 dark:hover:bg-dark-700'
+                  }`}
+                >
+                  {day.slice(0, 3)}
+                </button>
+              ))}
+            </div>
+          </div>
 
-        {/* Saturday Config */}
-        <div className="glass-card p-4">
-          <label className="flex items-center justify-between cursor-pointer">
-            <div><p className="text-sm font-medium text-slate-900 dark:text-dark-50">Separate Saturday Schedule</p>
-              <p className="text-xs text-slate-500 dark:text-dark-400">Define different timeslots for Saturday</p></div>
-            <div className="relative">
-              <input type="checkbox" checked={saturdayEnabled} onChange={e => setSaturdayEnabled(e.target.checked)} className="sr-only peer" />
-              <div className="w-11 h-6 bg-slate-300 dark:bg-dark-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+          {/* Main editor + preview layout */}
+          <div className={`grid gap-6 ${showPreview ? 'lg:grid-cols-[1fr_320px]' : ''}`}>
+            {/* Left: Period Override Editor */}
+            <div className="glass-card p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Layers size={16} className="text-primary-400" />
+                <p className="text-sm font-semibold text-slate-900 dark:text-dark-50">Slot Configuration</p>
+              </div>
+              <PeriodOverride
+                defaultTemplate={defaultTemplate}
+                dayOverrides={dayOverrides}
+                workingDays={workingDays}
+                onSlotsChange={handleSlotsChange}
+                onSave={saveStructure}
+                saving={saving}
+                dirty={dirty}
+              />
             </div>
-          </label>
-          {saturdayEnabled && (
-            <div className="mt-3 pt-3 border-t border-slate-300/30 dark:border-dark-700/30">
-              <p className="text-xs text-slate-500 dark:text-dark-400 mb-2">{saturdaySlots.length} Saturday slots</p>
-              <button onClick={() => setSaturdaySlots([...saturdaySlots, { label: `Sat P${saturdaySlots.length + 1}`, slotNumber: saturdaySlots.length + 1, startTime: '08:00', endTime: '08:40', type: 'period', isSchedulable: true }])}
-                className="btn-secondary text-xs"><Plus size={12} className="inline mr-1" /> Add Saturday Slot</button>
-            </div>
-          )}
-        </div>
-      </>}
+
+            {/* Right: Live Preview */}
+            {showPreview && (
+              <div className="space-y-4">
+                {/* Preview day selector */}
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    onClick={() => setPreviewDay(null)}
+                    className={`text-[10px] px-2 py-1 rounded-lg transition-all ${
+                      previewDay === null ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-dark-800 text-slate-400'
+                    }`}
+                  >
+                    Default
+                  </button>
+                  {workingDays.map(day => (
+                    <button
+                      key={day}
+                      onClick={() => setPreviewDay(day)}
+                      className={`text-[10px] px-2 py-1 rounded-lg transition-all relative ${
+                        previewDay === day ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-dark-800 text-slate-400'
+                      }`}
+                    >
+                      {day.slice(0, 3)}
+                      {dayOverrides[day] && (
+                        <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                <TimetablePreview
+                  slots={previewSlots}
+                  dayLabel={previewDay || 'Default Template'}
+                  compact
+                />
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Create Modal */}
       <Modal isOpen={createModal} onClose={() => setCreateModal(false)} title="Create Period Structure">
@@ -289,6 +363,16 @@ export default function PeriodStructure() {
           <button onClick={assignClasses} className="btn-primary">{assignedClasses.length} Classes Selected — Assign</button>
         </div>
       </Modal>
+
+      {/* Floating save */}
+      {dirty && (
+        <div className="fixed bottom-6 right-6 z-50 animate-slide-up">
+          <button onClick={saveStructure} disabled={saving} className="btn-primary shadow-2xl shadow-primary-500/30 flex items-center gap-2 px-5 py-2.5 text-sm">
+            {saving ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Check size={16} />}
+            {saving ? 'Saving...' : 'Save Structure'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

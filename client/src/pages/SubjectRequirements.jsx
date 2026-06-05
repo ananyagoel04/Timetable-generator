@@ -1,18 +1,78 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Save, Copy, BarChart3, Lightbulb, Filter, X, ChevronDown, Check, AlertTriangle, Loader2, RefreshCw, Grid3X3, Users, BookOpen, Settings, Shield, Zap, Plus, Trash2, CheckCircle, XCircle, Info } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  Save, Copy, BarChart3, Lightbulb, Filter, X, ChevronDown, Check,
+  AlertTriangle, Loader2, RefreshCw, Grid3X3, Users, BookOpen,
+  Settings, Shield, Zap, Plus, Trash2, CheckCircle, XCircle, Info,
+  Clock, Layers, Sparkles, ArrowUpDown
+} from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Modal from '../components/ui/Modal';
+import WeeklyLoadModal from '../components/WeeklyLoadModal';
+import TimetablePreview from '../components/TimetablePreview';
+import { dedupeBreaks, getDuration, computeStats } from '../utils/breakUtils';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const TABS = [
-  { id: 'subjects', label: 'Class Subjects', icon: BookOpen, desc: 'Which subjects each class studies' },
-  { id: 'periods', label: 'Weekly Periods', icon: Grid3X3, desc: 'Period allocation & teacher assignment' },
-  { id: 'eligibility', label: 'Eligibility', icon: Users, desc: 'Teacher eligibility overview' },
-  { id: 'workload', label: 'Workload', icon: BarChart3, desc: 'Teacher workload analysis' },
-  { id: 'validation', label: 'Validation', icon: Shield, desc: 'Readiness checks' }
+  { id: 'subjects', label: 'Class Subjects', icon: BookOpen, desc: 'Which subjects each class studies', accent: 'from-emerald-500 to-teal-500' },
+  { id: 'periods', label: 'Weekly Periods', icon: Grid3X3, desc: 'Period allocation & teacher assignment', accent: 'from-primary-500 to-indigo-500' },
+  { id: 'eligibility', label: 'Eligibility', icon: Users, desc: 'Teacher eligibility overview', accent: 'from-blue-500 to-cyan-500' },
+  { id: 'workload', label: 'Workload', icon: BarChart3, desc: 'Teacher workload analysis', accent: 'from-purple-500 to-pink-500' },
+  { id: 'validation', label: 'Validation', icon: Shield, desc: 'Readiness checks', accent: 'from-amber-500 to-orange-500' }
 ];
+
+// ── Reusable Class Picker Dropdown (overflow-safe) ──
+function ClassPickerDropdown({ classes, selectedClasses, setSelectedClasses }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Classes</label>
+      <button onClick={() => setOpen(!open)}
+        className="select-field text-xs min-w-[180px] text-left flex items-center justify-between !py-1.5">
+        <span>{selectedClasses.length === classes.length ? 'All Classes' : `${selectedClasses.length} selected`}</span>
+        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-64 max-h-56 overflow-y-auto bg-white dark:bg-dark-800 border border-slate-200 dark:border-dark-700 rounded-xl shadow-2xl p-2"
+          style={{ zIndex: 9999 }}>
+          <div className="flex gap-2 mb-2 sticky top-0 bg-white dark:bg-dark-800 pb-1 border-b border-slate-100 dark:border-dark-700">
+            <button onClick={() => setSelectedClasses(classes.map(c => c._id))} className="text-[10px] px-2 py-0.5 rounded bg-primary-500/10 text-primary-500 hover:bg-primary-500/20">All</button>
+            <button onClick={() => setSelectedClasses([])} className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-500 hover:bg-red-500/20">None</button>
+            <span className="ml-auto text-[9px] text-slate-400 dark:text-dark-500 self-center">{selectedClasses.length}/{classes.length}</span>
+          </div>
+          {classes.map(c => (
+            <label key={c._id} className="flex items-center gap-2 px-2 py-1 hover:bg-slate-50 dark:hover:bg-dark-700 rounded-lg cursor-pointer transition-colors">
+              <input type="checkbox" checked={selectedClasses.includes(c._id)}
+                onChange={e => e.target.checked ? setSelectedClasses(p => [...p, c._id]) : setSelectedClasses(p => p.filter(id => id !== c._id))}
+                className="w-3 h-3 rounded text-primary-600 focus:ring-primary-500" />
+              <span className="text-xs text-slate-700 dark:text-dark-200">{c.name}</span>
+              {c.stream && c.stream !== 'none' && <span className="text-[9px] text-slate-400 dark:text-dark-500 ml-auto">({c.stream})</span>}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SubjectRequirements() {
   const [activeTab, setActiveTab] = useState('subjects');
@@ -25,6 +85,7 @@ export default function SubjectRequirements() {
   const [suggestions, setSuggestions] = useState([]);
   const [validationData, setValidationData] = useState(null);
   const [eligibilityMatrix, setEligibilityMatrix] = useState(null);
+  const [periodStructures, setPeriodStructures] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -33,17 +94,19 @@ export default function SubjectRequirements() {
   const [selectedClasses, setSelectedClasses] = useState([]);
   const [streamFilter, setStreamFilter] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
-  const [showClassPicker, setShowClassPicker] = useState(false);
+  // showClassPicker state moved into ClassPickerDropdown component
 
   // Modals
   const [showCloneModal, setShowCloneModal] = useState(false);
+  const [weeklyLoadReq, setWeeklyLoadReq] = useState(null); // requirement for WeeklyLoadModal
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
   const [cloneSource, setCloneSource] = useState('');
   const [cloneTargets, setCloneTargets] = useState([]);
 
   // Grid states
-  const [gridData, setGridData] = useState({});    // period grid (classId_subjectId -> { periodsPerWeek, teacher, ... })
-  const [csmGrid, setCsmGrid] = useState({});      // class-subject mapping grid (classId_subjectId -> { isActive, ... })
+  const [gridData, setGridData] = useState({});
+  const [csmGrid, setCsmGrid] = useState({});
   const [dirty, setDirty] = useState(false);
   const [csmDirty, setCsmDirty] = useState(false);
 
@@ -52,24 +115,27 @@ export default function SubjectRequirements() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [classRes, subjectRes, teacherRes, reqRes, csmRes] = await Promise.all([
+      const [classRes, subjectRes, teacherRes, reqRes, csmRes, psRes] = await Promise.all([
         api.get('/classes'),
         api.get('/subjects'),
         api.get('/teachers'),
         api.get('/requirements'),
-        api.get('/requirements/class-subjects').catch(() => ({ data: { data: [] } }))
+        api.get('/requirements/class-subjects').catch(() => ({ data: { data: [] } })),
+        api.get('/setup/period-structures').catch(() => ({ data: [] }))
       ]);
       const cls = classRes.data?.data || classRes.data || [];
       const subs = subjectRes.data?.data || subjectRes.data || [];
       const tchs = teacherRes.data?.data || teacherRes.data || [];
       const reqs = reqRes.data?.data || reqRes.data || [];
       const csm = csmRes.data?.data || [];
+      const ps = psRes.data?.data || psRes.data || [];
 
       setClasses(cls);
       setSubjects(subs);
       setTeachers(tchs);
       setRequirements(reqs);
       setClassSubjects(csm);
+      setPeriodStructures(ps);
 
       if (selectedClasses.length === 0) setSelectedClasses(cls.map(c => c._id));
 
@@ -108,7 +174,7 @@ export default function SubjectRequirements() {
     finally { setLoading(false); }
   };
 
-  // ── Tab-specific loaders ──
+  // Tab-specific loaders
   const loadWorkload = async () => {
     try {
       const res = await api.get('/requirements/workload-summary');
@@ -144,7 +210,7 @@ export default function SubjectRequirements() {
     if (activeTab === 'eligibility') loadEligibility();
   }, [activeTab]);
 
-  // ── Grid update handlers ──
+  // Grid update handlers
   const updateCell = (classId, subjectId, field, value) => {
     const key = `${classId}_${subjectId}`;
     setGridData(prev => ({
@@ -163,7 +229,7 @@ export default function SubjectRequirements() {
     setCsmDirty(true);
   };
 
-  // ── Save handlers ──
+  // Save handlers
   const saveAll = async () => {
     setSaving(true);
     try {
@@ -218,7 +284,7 @@ export default function SubjectRequirements() {
     } catch (err) { toast.error('Clone failed'); }
   };
 
-  // ── Filters ──
+  // Filters
   const filteredClasses = classes.filter(c => {
     if (!selectedClasses.includes(c._id)) return false;
     if (streamFilter && c.stream !== streamFilter) return false;
@@ -234,6 +300,11 @@ export default function SubjectRequirements() {
   const getTotalAssigned = (classId) => filteredSubjects.reduce((sum, sub) => sum + (gridData[`${classId}_${sub._id}`]?.periodsPerWeek || 0), 0);
   const getCSMCount = (classId) => filteredSubjects.filter(sub => csmGrid[`${classId}_${sub._id}`]?.isActive).length;
 
+  // Period structure insight for the insight panel
+  const activeStructure = periodStructures.find(p => p.status === 'active');
+  const structureSlots = activeStructure?.defaultDayTemplate || activeStructure?.timeslots || [];
+  const structureStats = useMemo(() => computeStats(structureSlots), [structureSlots]);
+
   if (loading) return (
     <div className="flex items-center justify-center py-24">
       <Loader2 className="animate-spin text-primary-500" size={32} />
@@ -242,10 +313,13 @@ export default function SubjectRequirements() {
 
   return (
     <div className="space-y-4 animate-fade-in">
-      {/* Header */}
+      {/* ─── Header ─── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="page-title">Requirements & Configuration</h1>
+          <h1 className="page-title flex items-center gap-2">
+            <Sparkles size={24} className="text-primary-400" />
+            Requirements Studio
+          </h1>
           <p className="page-subtitle">Subject mapping, period allocation, eligibility & validation</p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -274,44 +348,62 @@ export default function SubjectRequirements() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* ─── Insight Strip ─── */}
+      {activeStructure && (
+        <div className="glass-card px-4 py-3 flex items-center gap-4 text-xs overflow-x-auto">
+          <div className="flex items-center gap-2 shrink-0">
+            <Clock size={14} className="text-primary-400" />
+            <span className="font-medium text-slate-700 dark:text-dark-200">Period Info</span>
+          </div>
+          <div className="h-5 w-px bg-slate-200 dark:bg-dark-700 shrink-0" />
+          <span className="text-slate-500 dark:text-dark-400 shrink-0">
+            <span className="font-semibold text-primary-500">{structureStats.teachingPeriods}</span> periods/day
+          </span>
+          <span className="text-slate-500 dark:text-dark-400 shrink-0">
+            <span className="font-semibold text-emerald-500">{structureStats.teachingMinutes}</span> min teaching
+          </span>
+          <span className="text-slate-500 dark:text-dark-400 shrink-0">
+            <span className="font-semibold text-amber-500">{structureStats.breakCount}</span> breaks
+          </span>
+          <div className="h-5 w-px bg-slate-200 dark:bg-dark-700 shrink-0" />
+          {/* Mini period labels */}
+          <div className="flex gap-1 overflow-x-auto shrink-0">
+            {structureSlots.map((slot, i) => (
+              <span
+                key={i}
+                className={`text-[9px] px-1.5 py-0.5 rounded-md font-medium whitespace-nowrap ${slot.isSchedulable
+                  ? 'bg-primary-500/10 text-primary-500'
+                  : slot.type === 'lunch'
+                    ? 'bg-emerald-500/10 text-emerald-500'
+                    : 'bg-amber-500/10 text-amber-500'
+                  }`}
+                title={`${slot.startTime}–${slot.endTime}`}
+              >
+                {slot.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Tabs ─── */}
       <div className="flex gap-1 bg-white dark:bg-dark-800 rounded-xl p-1 border border-slate-200 dark:border-dark-700 overflow-x-auto">
         {TABS.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${activeTab === tab.id ? 'bg-primary-600 text-white shadow-md' : 'text-slate-500 dark:text-dark-400 hover:bg-slate-50 dark:hover:bg-dark-700'}`}>
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${activeTab === tab.id ? 'bg-gradient-to-r ' + tab.accent + ' text-white shadow-md' : 'text-slate-500 dark:text-dark-400 hover:bg-slate-50 dark:hover:bg-dark-700'}`}>
             <tab.icon size={13} /> {tab.label}
           </button>
         ))}
       </div>
 
-      {/* Filters (shared across tabs) */}
+      {/* ─── Filters ─── */}
       {['subjects', 'periods'].includes(activeTab) && (
-        <div className="glass-card p-3 flex flex-wrap gap-3 items-end">
-          <div className="relative">
-            <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Classes</label>
-            <button onClick={() => setShowClassPicker(!showClassPicker)}
-              className="select-field text-xs min-w-[180px] text-left flex items-center justify-between !py-1.5">
-              <span>{selectedClasses.length === classes.length ? 'All Classes' : `${selectedClasses.length} selected`}</span>
-              <ChevronDown size={12} />
-            </button>
-            {showClassPicker && (
-              <div className="absolute top-full left-0 mt-1 w-60 max-h-48 overflow-y-auto bg-white dark:bg-dark-800 border border-slate-200 dark:border-dark-700 rounded-xl shadow-xl z-50 p-2">
-                <div className="flex gap-2 mb-2">
-                  <button onClick={() => setSelectedClasses(classes.map(c => c._id))} className="text-[10px] text-primary-500">All</button>
-                  <button onClick={() => setSelectedClasses([])} className="text-[10px] text-red-500">None</button>
-                </div>
-                {classes.map(c => (
-                  <label key={c._id} className="flex items-center gap-2 px-2 py-0.5 hover:bg-slate-50 dark:hover:bg-dark-700 rounded cursor-pointer">
-                    <input type="checkbox" checked={selectedClasses.includes(c._id)}
-                      onChange={e => e.target.checked ? setSelectedClasses(p => [...p, c._id]) : setSelectedClasses(p => p.filter(id => id !== c._id))}
-                      className="w-3 h-3 rounded text-primary-600" />
-                    <span className="text-xs">{c.name}</span>
-                    {c.stream && c.stream !== 'none' && <span className="text-[9px] text-slate-400">({c.stream})</span>}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="glass-card p-3 flex flex-wrap gap-3 items-end" style={{ overflow: 'visible' }}>
+          <ClassPickerDropdown
+            classes={classes}
+            selectedClasses={selectedClasses}
+            setSelectedClasses={setSelectedClasses}
+          />
           {streams.length > 0 && (
             <div>
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Stream</label>
@@ -333,7 +425,7 @@ export default function SubjectRequirements() {
 
       {/* ═══ TAB: CLASS SUBJECTS ═══ */}
       {activeTab === 'subjects' && (
-        <div className="glass-card overflow-hidden">
+        <div className="glass-card overflow-hidden z-10">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[800px]">
               <thead>
@@ -397,7 +489,9 @@ export default function SubjectRequirements() {
                   {filteredClasses.map(cls => (
                     <th key={cls._id} className="p-2 text-center text-xs min-w-[140px]">
                       <div>{cls.name}</div>
-                      <div className="text-[9px] text-slate-400 font-normal mt-0.5">{getTotalAssigned(cls._id)} assigned</div>
+                      <div className="text-[9px] text-slate-400 font-normal mt-0.5">
+                        {getTotalAssigned(cls._id)} / {structureStats.teachingPeriods * (activeStructure?.workingDays?.length || 6)} assigned
+                      </div>
                     </th>
                   ))}
                 </tr>
@@ -420,10 +514,21 @@ export default function SubjectRequirements() {
                       return (
                         <td key={cls._id} className="p-1.5 text-center">
                           <div className="space-y-1">
-                            <input type="number" min="0" max="15" value={cell.periodsPerWeek || ''}
-                              onChange={e => updateCell(cls._id, sub._id, 'periodsPerWeek', parseInt(e.target.value) || 0)}
-                              placeholder="0"
-                              className="w-12 mx-auto text-center bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 rounded-lg px-1.5 py-1 text-xs focus:ring-2 focus:ring-primary-500/50 transition-all" />
+                            <div className="flex items-center gap-0.5">
+                              <input type="number" min="0" max="15" value={cell.periodsPerWeek || ''}
+                                onChange={e => updateCell(cls._id, sub._id, 'periodsPerWeek', parseInt(e.target.value) || 0)}
+                                placeholder="0"
+                                className="w-12 mx-auto text-center bg-slate-50 dark:bg-dark-800 border border-slate-200 dark:border-dark-700 rounded-lg px-1.5 py-1 text-xs focus:ring-2 focus:ring-primary-500/50 transition-all" />
+                              {cell._id && (
+                                <button onClick={() => {
+                                  const req = requirements.find(r => r._id === cell._id);
+                                  if (req) setWeeklyLoadReq({ ...req, _className: cls.name, _subjectName: sub.name });
+                                }}
+                                  className="p-0.5 rounded hover:bg-primary-500/10 transition-colors" title="Edit weekly load details">
+                                  <Layers size={10} className="text-primary-400" />
+                                </button>
+                              )}
+                            </div>
                             <select value={cell.teacher || ''} onChange={e => updateCell(cls._id, sub._id, 'teacher', e.target.value)}
                               className="w-full text-[9px] bg-transparent border border-slate-200 dark:border-dark-700 rounded px-1 py-0.5 focus:ring-1 focus:ring-primary-500/50">
                               <option value="">— teacher —</option>
@@ -520,7 +625,6 @@ export default function SubjectRequirements() {
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-0.5">{w.teacher.department} · {w.classCount} classes · {w.subjectCount} subjects</p>
-                {/* Class breakdown */}
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   {Object.entries(w.classBreakdown || {}).map(([cls, periods]) => (
                     <span key={cls} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-dark-800 text-slate-500 dark:text-dark-400">{cls}: {periods}p</span>
@@ -549,7 +653,6 @@ export default function SubjectRequirements() {
         <div className="space-y-4">
           {validationData ? (
             <>
-              {/* Summary cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className={`glass-card p-4 text-center ${validationData.ready ? 'ring-2 ring-emerald-500/30' : 'ring-2 ring-red-500/30'}`}>
                   <div className={`text-2xl font-bold ${validationData.ready ? 'text-emerald-500' : 'text-red-500'}`}>
@@ -571,13 +674,12 @@ export default function SubjectRequirements() {
                 </div>
               </div>
 
-              {/* Issues list */}
               <div className="space-y-2">
                 {(validationData.issues || []).map((issue, i) => (
                   <div key={i} className={`glass-card p-3 flex items-start gap-3 border-l-4 ${issue.severity === 'error' ? 'border-l-red-500' : issue.severity === 'warning' ? 'border-l-amber-500' : 'border-l-blue-500'}`}>
                     {issue.severity === 'error' ? <XCircle size={16} className="text-red-500 shrink-0 mt-0.5" /> :
-                     issue.severity === 'warning' ? <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" /> :
-                     <Info size={16} className="text-blue-500 shrink-0 mt-0.5" />}
+                      issue.severity === 'warning' ? <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" /> :
+                        <Info size={16} className="text-blue-500 shrink-0 mt-0.5" />}
                     <div>
                       <p className="text-sm text-slate-700 dark:text-dark-200">{issue.message}</p>
                       <p className="text-[10px] text-slate-400 mt-0.5">{issue.type}</p>
@@ -601,7 +703,7 @@ export default function SubjectRequirements() {
         </div>
       )}
 
-      {/* Floating save button */}
+      {/* ─── Floating save buttons ─── */}
       {(dirty && activeTab === 'periods') && (
         <div className="fixed bottom-6 right-6 z-50 animate-slide-up">
           <button onClick={saveAll} disabled={saving} className="btn-primary shadow-2xl shadow-primary-500/30 flex items-center gap-2 px-5 py-2.5 text-sm">
@@ -619,7 +721,7 @@ export default function SubjectRequirements() {
         </div>
       )}
 
-      {/* Suggestions Modal */}
+      {/* ─── Suggestions Modal ─── */}
       <Modal isOpen={showSuggestions} onClose={() => setShowSuggestions(false)} title="Balancing Suggestions">
         <div className="space-y-3 max-h-[60vh] overflow-y-auto">
           {suggestions.map((s, i) => (
@@ -643,7 +745,7 @@ export default function SubjectRequirements() {
         </div>
       </Modal>
 
-      {/* Clone Modal */}
+      {/* ─── Clone Modal ─── */}
       <Modal isOpen={showCloneModal} onClose={() => setShowCloneModal(false)} title="Clone Period Configuration">
         <div className="space-y-4">
           <div>
@@ -672,6 +774,22 @@ export default function SubjectRequirements() {
           </div>
         </div>
       </Modal>
+
+      {/* Weekly Load Edit Modal */}
+      <WeeklyLoadModal
+        isOpen={!!weeklyLoadReq}
+        onClose={() => setWeeklyLoadReq(null)}
+        requirement={weeklyLoadReq}
+        className={weeklyLoadReq?._className || ''}
+        subjectName={weeklyLoadReq?._subjectName || ''}
+        onSaved={() => {
+          // Refresh requirements data
+          api.get('/requirements').then(r => {
+            const reqs = r.data.data || r.data || [];
+            setRequirements(reqs);
+          }).catch(() => { });
+        }}
+      />
     </div>
   );
 }

@@ -471,6 +471,29 @@ export default function TimetableView() {
 
   const periods = useMemo(() => Array.from({ length: maxPeriod }, (_, i) => i + 1), [maxPeriod]);
 
+  // Break deduplication: collapse consecutive breaks with same name into one row
+  const breakSpans = useMemo(() => {
+    const spans = {}; // { periodNumber: spanSize } for first break in group
+    const skipped = new Set(); // period numbers to skip rendering
+    for (let i = 0; i < periods.length; i++) {
+      const p = periods[i];
+      if (skipped.has(p)) continue;
+      if (!isBreak(p)) continue;
+      const name = getBreakName(p);
+      let span = 1;
+      // Look ahead for consecutive breaks with the same name
+      while (i + span < periods.length) {
+        const next = periods[i + span];
+        if (isBreak(next) && getBreakName(next) === name) {
+          skipped.add(next);
+          span++;
+        } else break;
+      }
+      if (span > 1) spans[p] = span;
+    }
+    return { spans, skipped };
+  }, [periods, isBreak, getBreakName]);
+
   // ═══ DND-KIT HANDLERS ═══
   const handleDragStart = useCallback((event) => {
     const { block } = event.active.data.current;
@@ -883,12 +906,16 @@ export default function TimetableView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {periods.map(p => {
+                {periods.map(p => {
                     const brk = isBreak(p);
+                    // Skip deduplicated break rows
+                    if (brk && breakSpans.skipped.has(p)) return null;
+                    const breakRowSpan = brk && breakSpans.spans[p] ? breakSpans.spans[p] : 1;
                     return (
                       <tr key={p} className={`border-t border-slate-200/60 dark:border-dark-700/40 ${brk ? 'bg-amber-50/50 dark:bg-amber-500/5' : ''}`}>
-                        <td className="px-2 py-1 text-xs font-medium text-slate-600 dark:text-dark-300 sticky left-0 bg-white dark:bg-dark-900 z-10 whitespace-nowrap">
-                          {brk ? '☕' : getPeriodLabel(p)}
+                        <td className="px-2 py-1 text-xs font-medium text-slate-600 dark:text-dark-300 sticky left-0 bg-white dark:bg-dark-900 z-10 whitespace-nowrap"
+                          {...(brk && breakRowSpan > 1 ? {} : {})}>
+                          {brk ? `☕ ${getBreakName(p)}` : getPeriodLabel(p)}
                         </td>
                         {visibleDays.map(d => {
                           if (brk) return <td key={d} className="px-1.5 py-1 text-center text-[10px] text-amber-400/60">{getBreakName(p)}</td>;

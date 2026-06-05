@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, CheckCircle, AlertTriangle, Loader2, Eye, X, Clock, BarChart3, XCircle, RefreshCw, ChevronDown, ChevronRight, Lightbulb, Lock, Unlock, ToggleLeft, ToggleRight, Database, Users, BookOpen, Home } from 'lucide-react';
+import { Zap, CheckCircle, AlertTriangle, Loader2, Eye, X, Clock, BarChart3, XCircle, RefreshCw, ChevronDown, ChevronRight, Lightbulb, Lock, Unlock, ToggleLeft, ToggleRight, Database, Users, BookOpen, Home, Edit3 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
@@ -36,6 +36,8 @@ export default function Generator() {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [expandedDiag, setExpandedDiag] = useState(null);
   const pollRef = useRef(null);
+  const [partialStats, setPartialStats] = useState(null);
+  const [jobLogs, setJobLogs] = useState([]);
 
   // Priority 3: Pre-generation options
   const [showOptions, setShowOptions] = useState(false);
@@ -66,8 +68,17 @@ export default function Generator() {
     pollRef.current = setInterval(async () => {
       try {
         const res = await api.get(`/generation/jobs/${jid}`);
-        const data = res.data;
+        const data = res.data?.data || res.data;
         setProgress({ percent: data.progress || 0, stage: data.stage || '' });
+        if (data.partialStats) setPartialStats(data.partialStats);
+        if (data.logCount > jobLogs.length) {
+          // Fetch latest logs
+          try {
+            const logsRes = await api.get(`/generation/jobs/${jid}/logs`);
+            const logsData = logsRes.data?.data?.logs || logsRes.data?.logs || [];
+            setJobLogs(logsData.slice(-20));
+          } catch { /* ignore */ }
+        }
 
         if (data.status === 'completed') {
           clearInterval(pollRef.current);
@@ -92,7 +103,7 @@ export default function Generator() {
   }, []);
 
   const handleGenerate = async () => {
-    setGenerating(true); setResult(null); setProgress({ percent: 0, stage: 'starting' });
+    setGenerating(true); setResult(null); setPartialStats(null); setJobLogs([]); setProgress({ percent: 0, stage: 'starting' });
     try {
       const body = {
         lockedBlockIds: [...selectedLocked],
@@ -260,6 +271,50 @@ export default function Generator() {
                 <XCircle size={16} /> Cancel
               </button>
             </div>
+
+            {/* Live Partial Stats */}
+            {partialStats && (
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4 max-w-xl mx-auto animate-fade-in">
+                <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-3 text-center border border-slate-200/40 dark:border-dark-700/40">
+                  <p className="text-lg font-bold text-emerald-400">{partialStats.totalBlocks || 0}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-dark-500">Total</p>
+                </div>
+                <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-3 text-center border border-slate-200/40 dark:border-dark-700/40">
+                  <p className="text-lg font-bold text-blue-400">{partialStats.placedBlocks || 0}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-dark-500">Placed</p>
+                </div>
+                <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-3 text-center border border-slate-200/40 dark:border-dark-700/40">
+                  <p className={`text-lg font-bold ${(partialStats.unplacedBlocks || 0) > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{partialStats.unplacedBlocks || 0}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-dark-500">Unplaced</p>
+                </div>
+                <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-3 text-center border border-slate-200/40 dark:border-dark-700/40">
+                  <p className={`text-lg font-bold ${(partialStats.conflicts || 0) > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{partialStats.conflicts || '—'}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-dark-500">Conflicts</p>
+                </div>
+                <div className="bg-white/60 dark:bg-dark-800/60 rounded-xl p-3 text-center border border-slate-200/40 dark:border-dark-700/40">
+                  <p className="text-lg font-bold text-slate-500 dark:text-dark-300">{partialStats.qualityScore || '—'}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-dark-500">Quality</p>
+                </div>
+              </div>
+            )}
+
+            {/* Live Logs */}
+            {jobLogs.length > 0 && (
+              <div className="mt-4 max-w-xl mx-auto">
+                <details className="text-left">
+                  <summary className="text-[10px] text-slate-400 dark:text-dark-500 cursor-pointer hover:text-slate-600 dark:hover:text-dark-300">Generation Logs ({jobLogs.length})</summary>
+                  <div className="mt-1 max-h-32 overflow-y-auto bg-slate-50/50 dark:bg-dark-800/50 rounded-lg p-2 space-y-0.5">
+                    {jobLogs.map((log, i) => (
+                      <div key={i} className="text-[9px] text-slate-400 dark:text-dark-500 font-mono flex gap-2">
+                        <span className="text-slate-300 dark:text-dark-600 shrink-0">{new Date(log.ts).toLocaleTimeString()}</span>
+                        <span className="text-emerald-400/70">{log.stage}</span>
+                        {log.percent != null && <span>{log.percent}%</span>}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -391,7 +446,8 @@ export default function Generator() {
           {/* Actions */}
           <div className="flex justify-center gap-3">
             <Link to="/timetable" className="btn-primary flex items-center gap-2"><Eye size={16} /> View Timetable</Link>
-            {result.conflicts > 0 && <Link to="/conflicts" className="btn-secondary flex items-center gap-2"><AlertTriangle size={16} /> View Conflicts</Link>}
+            {result.timetableId && <Link to={`/timetable?id=${result.timetableId}&edit=1`} className="btn-secondary flex items-center gap-2"><Edit3 size={16} /> Open in Editor</Link>}
+            {result.conflicts > 0 && <Link to="/conflicts" className="px-4 py-2 rounded-xl text-sm font-medium bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors flex items-center gap-2"><AlertTriangle size={16} /> View Conflicts</Link>}
             <button onClick={handleGenerate} className="px-4 py-2 rounded-xl text-sm font-medium bg-slate-500/10 text-slate-600 dark:text-dark-300 hover:bg-slate-500/20 transition-colors flex items-center gap-2"><RefreshCw size={14} /> Regenerate</button>
           </div>
         </div>
