@@ -176,6 +176,36 @@ export default function ManualTimetableBuilder() {
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
 
+  // Template Gallery state
+  const [showTemplateGallery, setShowTemplateGallery] = useState(false);
+  const TEMPLATES = [
+    {
+      id: 'primary', name: 'Primary School', icon: '🎒', accent: 'from-green-500 to-emerald-600',
+      desc: 'Grades 1-5 • 7 periods/day • Short breaks • Activity-heavy',
+      periods: 7, days: 6, breakPattern: '3+Recess+4', focus: 'Activity & play-based'
+    },
+    {
+      id: 'middle', name: 'Middle School', icon: '📚', accent: 'from-blue-500 to-indigo-600',
+      desc: 'Grades 6-8 • 8 periods/day • Lab periods • Balanced academics',
+      periods: 8, days: 6, breakPattern: '3+Short+2+Lunch+3', focus: 'Balanced academics'
+    },
+    {
+      id: 'senior', name: 'Senior Secondary', icon: '🎓', accent: 'from-purple-500 to-pink-600',
+      desc: 'Grades 9-12 • 8 periods/day • Stream-based • Double periods',
+      periods: 8, days: 6, breakPattern: '3+Short+2+Lunch+3', focus: 'Stream specialization'
+    },
+    {
+      id: 'cbse', name: 'CBSE Pattern', icon: '🏫', accent: 'from-orange-500 to-red-600',
+      desc: 'CBSE standard • 8 periods • Saturday half-day • Assembly period',
+      periods: 8, days: 6, breakPattern: 'Assembly+3+Short+2+Lunch+3', focus: 'CBSE compliance'
+    },
+    {
+      id: 'icse', name: 'ICSE Pattern', icon: '📖', accent: 'from-teal-500 to-cyan-600',
+      desc: 'ICSE standard • 9 periods • 5-day week • Extended lab',
+      periods: 9, days: 5, breakPattern: '3+Short+3+Lunch+3', focus: 'Intensive academics'
+    }
+  ];
+
   // Add lesson form
   const [lessonForm, setLessonForm] = useState({
     classId: '', subjectId: '', teacherId: '', roomId: '',
@@ -459,7 +489,7 @@ export default function ManualTimetableBuilder() {
     if (day === 'Saturday' && periodStructure.saturdayConfig?.enabled) {
       return periodStructure.saturdayConfig.timeslots || [];
     }
-    return periodStructure.timeslots || [];
+    return periodStructure.defaultDayTemplate || periodStructure.timeslots || [];
   };
 
   // ── Get blocks for a cell ──
@@ -543,15 +573,53 @@ export default function ManualTimetableBuilder() {
             <p className="text-sm text-slate-500 dark:text-dark-400">Start from last session's timetable as a template</p>
           </button>
 
-          <button onClick={() => createTimetable('blank')} disabled={loading}
+          <button onClick={() => setShowTemplateGallery(true)} disabled={loading}
             className="glass-card-hover p-6 text-left group">
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-lg">
               <FileText size={24} className="text-white" />
             </div>
             <h3 className="font-bold text-slate-900 dark:text-dark-50 text-lg mb-1">From Template</h3>
-            <p className="text-sm text-slate-500 dark:text-dark-400">Use a pre-designed template for common setups</p>
+            <p className="text-sm text-slate-500 dark:text-dark-400">Choose from Primary, Middle, Senior, CBSE, or ICSE templates</p>
           </button>
         </div>
+
+        {/* Template Gallery Modal */}
+        {showTemplateGallery && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowTemplateGallery(false)}>
+            <div className="bg-white dark:bg-dark-900 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-dark-50">Template Gallery</h2>
+                  <p className="text-sm text-slate-500 dark:text-dark-400 mt-1">Pre-designed period structures for common school types</p>
+                </div>
+                <button onClick={() => setShowTemplateGallery(false)} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-800">
+                  <X size={18} className="text-slate-400" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {TEMPLATES.map(tmpl => (
+                  <button key={tmpl.id} onClick={() => { setShowTemplateGallery(false); createTimetable('blank'); }}
+                    className="text-left p-5 rounded-xl border-2 border-slate-200 dark:border-dark-700 hover:border-primary-400 dark:hover:border-primary-500 transition-all hover:shadow-lg group">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${tmpl.accent} flex items-center justify-center text-lg shadow-md group-hover:scale-110 transition-transform`}>
+                        {tmpl.icon}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-800 dark:text-dark-100">{tmpl.name}</h3>
+                        <p className="text-[10px] text-slate-400 dark:text-dark-500">{tmpl.focus}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-dark-400 mb-3">{tmpl.desc}</p>
+                    <div className="flex items-center gap-3 text-[10px]">
+                      <span className="px-2 py-0.5 rounded-full bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-medium">{tmpl.periods} periods/day</span>
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-dark-700 text-slate-500 dark:text-dark-400 font-medium">{tmpl.days} days/week</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {loading && (
           <div className="flex items-center justify-center py-8">

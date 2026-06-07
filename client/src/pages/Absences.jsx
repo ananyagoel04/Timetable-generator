@@ -3,6 +3,7 @@ import { UserMinus, AlertTriangle, CheckCircle, Clock, User, ArrowRight, Loader2
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Modal from '../components/ui/Modal';
+import { useAuth } from '../context/AuthContext';
 
 const STATUS_BADGES = {
   active: { cls: 'bg-red-500/10 text-red-500 border-red-500/20', label: 'Unresolved' },
@@ -12,6 +13,7 @@ const STATUS_BADGES = {
 };
 
 export default function Absences() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [absences, setAbsences] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +33,7 @@ export default function Absences() {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterTeacher, setFilterTeacher] = useState('');
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [selectedSchool, selectedSession]);
 
   const loadData = async () => {
     setLoading(true);
@@ -40,8 +42,8 @@ export default function Absences() {
         api.get('/absences'),
         api.get('/teachers')
       ]);
-      setAbsences(absRes.data?.data || []);
-      setTeachers(teachRes.data?.data || teachRes.data || []);
+      setAbsences(absRes.data || absRes || []);
+      setTeachers(teachRes.data || teachRes || []);
     } catch (err) { toast.error('Failed to load data'); }
     finally { setLoading(false); }
   };
@@ -114,9 +116,9 @@ export default function Absences() {
   );
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-5 animate-fade-in overflow-x-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="page-title">Absence Management</h1>
           <p className="page-subtitle">Track absences and manage replacements</p>
@@ -127,7 +129,7 @@ export default function Absences() {
       </div>
 
       {/* Filters */}
-      <div className="glass-card p-4 flex flex-wrap gap-3 items-end">
+      <div className="glass-card p-3 sm:p-4 flex flex-wrap gap-3 items-end">
         <div>
           <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Status</label>
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="select-field text-sm">
@@ -140,7 +142,7 @@ export default function Absences() {
         </div>
         <div>
           <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Teacher</label>
-          <select value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)} className="select-field text-sm min-w-[180px]">
+          <select value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)} className="select-field text-sm w-full sm:min-w-[180px]">
             <option value="">All Teachers</option>
             {teachers.filter(t => t.status === 'active').map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
           </select>
@@ -216,6 +218,8 @@ export default function Absences() {
                   <option value="full_day">Full Day</option>
                   <option value="selected_periods">Selected Periods</option>
                   <option value="date_range">Date Range</option>
+                  <option value="late_arrival">Late Arrival</option>
+                  <option value="early_departure">Early Departure</option>
                 </select>
               </div>
             </div>
@@ -225,12 +229,38 @@ export default function Absences() {
                 <input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} className="input-field" />
               </div>
             )}
-            {form.absenceType === 'selected_periods' && (
+            {(form.absenceType === 'selected_periods' || form.absenceType === 'late_arrival' || form.absenceType === 'early_departure') && (
               <div>
-                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Periods (comma-separated)</label>
-                <input type="text" placeholder="1,2,3" value={form.affectedPeriods.join(',')}
-                  onChange={e => setForm({ ...form, affectedPeriods: e.target.value.split(',').map(Number).filter(n => !isNaN(n) && n > 0) })}
-                  className="input-field" />
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1.5 block">
+                  {form.absenceType === 'late_arrival' ? 'Periods missed (arriving late)' : form.absenceType === 'early_departure' ? 'Periods missed (leaving early)' : 'Select affected periods'}
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1,2,3,4,5,6,7,8,9,10].map(p => {
+                    const isSelected = form.affectedPeriods.includes(p);
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setForm(prev => ({
+                          ...prev,
+                          affectedPeriods: isSelected
+                            ? prev.affectedPeriods.filter(x => x !== p)
+                            : [...prev.affectedPeriods, p].sort((a, b) => a - b)
+                        }))}
+                        className={`w-9 h-9 rounded-lg text-xs font-bold transition-all border ${
+                          isSelected
+                            ? 'bg-primary-500 text-white border-primary-600 shadow-md scale-105'
+                            : 'bg-slate-50 dark:bg-dark-800 text-slate-500 dark:text-dark-400 border-slate-200 dark:border-dark-700 hover:border-primary-300'
+                        }`}
+                      >
+                        P{p}
+                      </button>
+                    );
+                  })}
+                </div>
+                {form.affectedPeriods.length > 0 && (
+                  <p className="text-[10px] text-primary-500 mt-1.5">{form.affectedPeriods.length} period{form.affectedPeriods.length !== 1 ? 's' : ''} selected</p>
+                )}
               </div>
             )}
             <div>

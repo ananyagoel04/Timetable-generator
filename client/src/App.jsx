@@ -20,6 +20,7 @@ import Generator from './pages/Generator';
 import ConflictCenter from './pages/ConflictCenter';
 import Absences from './pages/Absences';
 import Substitutions from './pages/Substitutions';
+import StaffAvailability from './pages/StaffAvailability';
 import AuditLogs from './pages/AuditLogs';
 import TeacherReplacements from './pages/TeacherReplacements';
 import PeriodStructure from './pages/PeriodStructure';
@@ -161,6 +162,7 @@ function AppRoutes() {
         } />
 
         {/* Operations — manager and above */}
+        <Route path="/staff-availability" element={<Gated permissions={['manage_absences']}><StaffAvailability /></Gated>} />
         <Route path="/absences" element={<Gated permissions={['manage_absences']}><Absences /></Gated>} />
         <Route path="/substitutions" element={<Gated permissions={['approve_substitutions']}><Substitutions /></Gated>} />
         <Route path="/replacements" element={<Gated permissions={['manage_replacements']}><TeacherReplacements /></Gated>} />

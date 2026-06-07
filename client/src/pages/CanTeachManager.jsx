@@ -3,6 +3,7 @@ import { BookOpen, Users, Plus, Trash2, Save, RefreshCw, Loader2, Filter, Grid3X
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Modal from '../components/ui/Modal';
+import { useAuth } from '../context/AuthContext';
 
 const ELIGIBILITY_TYPES = [
   { value: 'primary', label: 'Primary', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400', icon: '🟢' },
@@ -12,6 +13,7 @@ const ELIGIBILITY_TYPES = [
 ];
 
 export default function CanTeachManager() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [viewMode, setViewMode] = useState('matrix'); // matrix | list
   const [matrixData, setMatrixData] = useState(null);
   const [mappings, setMappings] = useState([]);

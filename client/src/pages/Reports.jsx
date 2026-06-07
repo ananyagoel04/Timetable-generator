@@ -3,10 +3,12 @@ import { Calendar, Users, BookOpen, Printer, Download, Filter, Settings2, X, Ale
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import Modal from '../components/ui/Modal';
+import { useAuth } from '../context/AuthContext';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function Reports() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [tab, setTab] = useState('day-wise');
   const [timetables, setTimetables] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -55,7 +57,7 @@ export default function Reports() {
       api.get('/teachers').then(r => { const d = r.data?.data || r.data || []; setTeachers(d); if (d.length) setSelectedTeacher(d[0]._id); }),
       api.get('/rooms').then(r => { const d = r.data?.data || r.data || []; setRooms(d); if (d.length) setSelectedRoom(d[0]._id); }).catch(() => {})
     ]);
-  }, []);
+  }, [selectedSchool, selectedSession]);
 
   const fetchReport = useCallback(async () => {
     if (['replacement', 'workload', 'room-util', 'conflict', 'audit', 'room-timetable'].includes(tab)) {
@@ -127,7 +129,7 @@ export default function Reports() {
     else if (['workload', 'room-util', 'conflict', 'audit', 'readiness'].includes(tab)) fetchSpecialReport();
     else if (tab === 'room-timetable' && selectedRoom) fetchSpecialReport();
     else if (selectedTT) fetchReport();
-  }, [tab, selectedTT, selectedDay, selectedClass, selectedTeacher, selectedRoom]);
+  }, [tab, selectedTT, selectedDay, selectedClass, selectedTeacher, selectedRoom, selectedSchool, selectedSession]);
 
   const exportCSV = () => {
     let csv = '';
@@ -248,15 +250,15 @@ export default function Reports() {
   const exportButtons = getExportButtons();
 
   return (
-    <div className="space-y-5 animate-fade-in relative">
+    <div className="space-y-5 animate-fade-in relative overflow-x-hidden">
       {/* Print header */}
       <div className="print-header">
         <h2>{printConfig.headerText}</h2>
       </div>
 
-      <div className="flex items-center justify-between flex-wrap gap-3 no-print">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 no-print">
         <div><h1 className="page-title">Reports</h1><p className="page-subtitle">Generate, view, and export timetable reports</p></div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap w-full sm:w-auto">
           <button onClick={() => setShowPrintModal(true)} className="btn-secondary flex items-center gap-2 text-sm"><Printer size={14} /> Print</button>
           {exportButtons.map((b, i) => {
             const Icon = b.icon;
@@ -266,23 +268,23 @@ export default function Reports() {
       </div>
 
       {/* Tabs */}
-      <div className="glass-card p-1.5 flex gap-1 no-print overflow-x-auto">
+      <div className="glass-card p-1.5 flex gap-1 no-print overflow-x-auto scrollbar-thin -mx-4 sm:mx-0 px-4 sm:px-1.5">
         {tabs.map(t => {
           const Icon = t.icon;
           return (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap min-w-[100px]
+              className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap shrink-0
                 ${tab === t.id ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/30' : 'text-slate-500 dark:text-dark-400 hover:text-slate-900 dark:hover:text-dark-50 hover:bg-slate-100 dark:hover:bg-dark-800/60'}`}>
-              <Icon size={15} />{t.label}
+              <Icon size={14} /><span className="hidden sm:inline">{t.label}</span><span className="sm:hidden">{t.label.split(' ')[0]}</span>
             </button>
           );
         })}
       </div>
 
       {/* Filters */}
-      <div className="glass-card p-4 flex flex-wrap gap-3 items-end no-print">
+      <div className="glass-card p-3 sm:p-4 flex flex-wrap gap-3 items-end no-print">
         {!['replacement', 'audit'].includes(tab) && (
-          <div className="min-w-[180px]">
+          <div className="w-full sm:w-auto sm:min-w-[180px]">
             <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Timetable</label>
             <select value={selectedTT} onChange={e => setSelectedTT(e.target.value)} className="select-field text-sm">
               {timetables.map(t => <option key={t._id} value={t._id}>{t.name} ({t.status})</option>)}
@@ -290,7 +292,7 @@ export default function Reports() {
           </div>
         )}
         {tab === 'day-wise' && (
-          <div className="min-w-[140px]">
+          <div className="w-full sm:w-auto sm:min-w-[140px]">
             <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Day</label>
             <select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className="select-field text-sm">
               {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -298,7 +300,7 @@ export default function Reports() {
           </div>
         )}
         {tab === 'class-weekly' && (
-          <div className="min-w-[160px]">
+          <div className="w-full sm:w-auto sm:min-w-[160px]">
             <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Class</label>
             <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="select-field text-sm">
               {classes.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
@@ -306,7 +308,7 @@ export default function Reports() {
           </div>
         )}
         {tab === 'teacher-weekly' && (
-          <div className="min-w-[180px]">
+          <div className="w-full sm:w-auto sm:min-w-[180px]">
             <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Teacher</label>
             <select value={selectedTeacher} onChange={e => setSelectedTeacher(e.target.value)} className="select-field text-sm">
               {teachers.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
@@ -314,7 +316,7 @@ export default function Reports() {
           </div>
         )}
         {tab === 'room-timetable' && (
-          <div className="min-w-[180px]">
+          <div className="w-full sm:w-auto sm:min-w-[180px]">
             <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Room</label>
             <select value={selectedRoom} onChange={e => setSelectedRoom(e.target.value)} className="select-field text-sm">
               {rooms.map(r => <option key={r._id} value={r._id}>{r.name} ({r.type})</option>)}
@@ -323,15 +325,15 @@ export default function Reports() {
         )}
         {tab === 'replacement' && (
           <>
-            <div className="min-w-[130px]">
+            <div className="w-full sm:w-auto sm:min-w-[130px]">
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">From Date</label>
               <input type="date" value={replacementDate} onChange={e => setReplacementDate(e.target.value)} className="input-field text-sm" />
             </div>
-            <div className="min-w-[130px]">
+            <div className="w-full sm:w-auto sm:min-w-[130px]">
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">To Date (optional)</label>
               <input type="date" value={replacementDateTo} onChange={e => setReplacementDateTo(e.target.value)} className="input-field text-sm" />
             </div>
-            <div className="min-w-[160px]">
+            <div className="w-full sm:w-auto sm:min-w-[160px]">
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Teacher (optional)</label>
               <select value={replacementTeacher} onChange={e => setReplacementTeacher(e.target.value)} className="select-field text-sm">
                 <option value="">All Teachers</option>
@@ -342,15 +344,15 @@ export default function Reports() {
         )}
         {tab === 'audit' && (
           <>
-            <div className="min-w-[130px]">
+            <div className="w-full sm:w-auto sm:min-w-[130px]">
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">From Date</label>
               <input type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)} className="input-field text-sm" />
             </div>
-            <div className="min-w-[130px]">
+            <div className="w-full sm:w-auto sm:min-w-[130px]">
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">To Date</label>
               <input type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)} className="input-field text-sm" />
             </div>
-            <div className="min-w-[140px]">
+            <div className="w-full sm:w-auto sm:min-w-[140px]">
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Module</label>
               <select value={auditModule} onChange={e => setAuditModule(e.target.value)} className="select-field text-sm">
                 <option value="">All Modules</option>
@@ -363,7 +365,7 @@ export default function Reports() {
             </div>
           </>
         )}
-        <button onClick={() => { if (['replacement', 'workload', 'room-util', 'conflict', 'audit', 'room-timetable'].includes(tab)) fetchSpecialReport(); else fetchReport(); }} className="btn-secondary flex items-center gap-2 text-sm"><RefreshCw size={14} /> Refresh</button>
+        <button onClick={() => { if (['replacement', 'workload', 'room-util', 'conflict', 'audit', 'room-timetable'].includes(tab)) fetchSpecialReport(); else fetchReport(); }} className="btn-secondary flex items-center justify-center gap-2 text-sm w-full sm:w-auto"><RefreshCw size={14} /> Refresh</button>
       </div>
 
       {/* Report Content */}

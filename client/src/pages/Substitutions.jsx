@@ -5,8 +5,10 @@ import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import PermissionGate from '../components/ui/PermissionGate';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 export default function Substitutions() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [subs, setSubs] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [classes, setClasses] = useState([]);

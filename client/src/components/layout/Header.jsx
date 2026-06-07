@@ -13,6 +13,7 @@ const pageTitles = {
   '/periods': 'Period & Break Structure', '/requirements': 'Weekly Subject Periods',
   '/combinations': 'Combined Classes', '/rules': 'Rules & Preferences',
   '/absences': 'Absence Tracker', '/substitutions': 'Substitution Manager',
+  '/staff-availability': 'Staff Availability Center',
   '/replacements': 'Teacher Replacements', '/users': 'User Management',
   '/audit-logs': 'Audit Logs', '/reports': 'Reports',
   '/platform': 'Platform Admin', '/settings': 'Settings',

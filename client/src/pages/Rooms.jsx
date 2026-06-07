@@ -3,8 +3,10 @@ import { Plus, Edit2, Trash2, Search } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 export default function Rooms() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);

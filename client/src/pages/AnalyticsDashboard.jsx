@@ -8,11 +8,13 @@ import api from '../api/axios';
 import HeatmapChart from '../components/ui/HeatmapChart';
 import QualityGauge from '../components/ui/QualityGauge';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat' };
 
 export default function AnalyticsDashboard() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [dashboard, setDashboard] = useState(null);
   const [heatmap, setHeatmap] = useState([]);
   const [roomData, setRoomData] = useState([]);
@@ -25,7 +27,7 @@ export default function AnalyticsDashboard() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [selectedSchool, selectedSession]);
 
   const loadData = async () => {
     setLoading(true);

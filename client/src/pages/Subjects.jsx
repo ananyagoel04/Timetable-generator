@@ -3,8 +3,10 @@ import { Plus, Edit2, Trash2, Search } from "lucide-react";
 import api from "../api/axios";
 import Modal from "../components/ui/Modal";
 import toast from "react-hot-toast";
+import { useAuth } from '../context/AuthContext';
 
 export default function Subjects() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -18,8 +20,8 @@ export default function Subjects() {
     defaultPeriodsPerWeek: 4,
     color: "#6366f1",
     requiresLab: false,
-    preferMorning: false,
-    preferAfternoon: false,
+    timePreference: "none",
+    timePreferenceStrength: "preferred",
   });
 
   useEffect(() => {
@@ -54,8 +56,8 @@ export default function Subjects() {
       defaultPeriodsPerWeek: s.defaultPeriodsPerWeek,
       color: s.color,
       requiresLab: s.requiresLab,
-      preferMorning: s.preferMorning,
-      preferAfternoon: s.preferAfternoon,
+      timePreference: s.timePreference || (s.preferMorning ? 'morning' : s.preferAfternoon ? 'afternoon' : 'none'),
+      timePreferenceStrength: s.timePreferenceStrength || 'preferred',
     });
     setModalOpen(true);
   };
@@ -97,8 +99,8 @@ export default function Subjects() {
               defaultPeriodsPerWeek: 4,
               color: "#6366f1",
               requiresLab: false,
-              preferMorning: false,
-              preferAfternoon: false,
+              timePreference: "none",
+              timePreferenceStrength: "preferred",
             });
             setModalOpen(true);
           }}
@@ -166,14 +168,14 @@ export default function Subjects() {
                     Lab
                   </span>
                 )}
-                {s.preferMorning && (
+                {(s.timePreference === 'morning' || s.preferMorning) && (
                   <span className="badge bg-amber-500/20 text-amber-400 text-[9px]">
-                    AM
+                    ☀️ AM{s.timePreferenceStrength === 'required' ? ' (req)' : s.timePreferenceStrength === 'strong' ? ' (strong)' : ''}
                   </span>
                 )}
-                {s.preferAfternoon && (
+                {(s.timePreference === 'afternoon' || s.preferAfternoon) && (
                   <span className="badge bg-blue-500/20 text-blue-400 text-[9px]">
-                    PM
+                    🌙 PM{s.timePreferenceStrength === 'required' ? ' (req)' : s.timePreferenceStrength === 'strong' ? ' (strong)' : ''}
                   </span>
                 )}
               </div>
@@ -287,28 +289,40 @@ export default function Subjects() {
               />
               <span className="text-sm text-slate-600 dark:text-dark-300">Requires Lab</span>
             </label>
-            <label className="flex items-center gap-2 pt-4">
-              <input
-                type="checkbox"
-                checked={form.preferMorning}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, preferMorning: e.target.checked }))
-                }
-                className="w-4 h-4 rounded"
-              />
-              <span className="text-sm text-slate-600 dark:text-dark-300">Prefer Morning</span>
-            </label>
-            <label className="flex items-center gap-2 pt-4">
-              <input
-                type="checkbox"
-                checked={form.preferAfternoon}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, preferAfternoon: e.target.checked }))
-                }
-                className="w-4 h-4 rounded"
-              />
-              <span className="text-sm text-slate-600 dark:text-dark-300">Prefer Afternoon</span>
-            </label>
+          </div>
+          {/* Time Preference */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Time Preference</label>
+              <select
+                value={form.timePreference}
+                onChange={(e) => setForm((f) => ({ ...f, timePreference: e.target.value }))}
+                className="select-field"
+              >
+                <option value="none">No Preference</option>
+                <option value="morning">☀️ Morning (P1-P3)</option>
+                <option value="afternoon">🌙 Afternoon (P5+)</option>
+              </select>
+            </div>
+            {form.timePreference !== 'none' && (
+              <div>
+                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Strength</label>
+                <select
+                  value={form.timePreferenceStrength}
+                  onChange={(e) => setForm((f) => ({ ...f, timePreferenceStrength: e.target.value }))}
+                  className="select-field"
+                >
+                  <option value="preferred">Preferred (soft)</option>
+                  <option value="strong">Strong Preferred</option>
+                  <option value="required">Required (hard)</option>
+                </select>
+                <p className="text-[9px] text-slate-400 dark:text-dark-500 mt-1">
+                  {form.timePreferenceStrength === 'required' ? '⚠️ Generator will ONLY place in allowed slots' :
+                   form.timePreferenceStrength === 'strong' ? 'Generator strongly prefers these slots' :
+                   'Generator slightly prefers these slots'}
+                </p>
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button

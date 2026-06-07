@@ -3,8 +3,10 @@ import { Plus, Edit2, Trash2, Search } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 export default function Teachers() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [teachers, setTeachers] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);

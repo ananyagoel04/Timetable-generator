@@ -3,6 +3,7 @@ import { Zap, CheckCircle, AlertTriangle, Loader2, Eye, X, Clock, BarChart3, XCi
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 const STAGE_LABELS = {
   starting: 'Initializing',
@@ -28,6 +29,7 @@ const STAGE_LABELS = {
 const STAGE_ORDER = ['loading', 'generating_blocks', 'resolving_groups', 'locked_blocks', 'reserved', 'combined', 'split_groups', 'regular', 'retry', 'saving', 'scoring', 'complete'];
 
 export default function Generator() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [generating, setGenerating] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [progress, setProgress] = useState({ percent: 0, stage: '' });
@@ -46,7 +48,7 @@ export default function Generator() {
   const [loadingLocked, setLoadingLocked] = useState(false);
   const [requireTeacher, setRequireTeacher] = useState(true);
 
-  useEffect(() => { api.get('/timetable/list').then(r => setTimetables(r.data || [])); }, []);
+  useEffect(() => { api.get('/timetable/list').then(r => setTimetables(r.data || [])); }, [selectedSchool, selectedSession]);
 
   // Cleanup polling on unmount
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
@@ -61,7 +63,7 @@ export default function Generator() {
       setSelectedLocked(new Set(blocks.map(b => b._id)));
     } catch { setLockedBlocks([]); }
     setLoadingLocked(false);
-  }, []);
+  }, [selectedSchool, selectedSession]);
 
   const pollJobStatus = useCallback((jid) => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -100,7 +102,7 @@ export default function Generator() {
         }
       } catch { /* ignore poll errors */ }
     }, 1000);
-  }, []);
+  }, [selectedSchool, selectedSession]);
 
   const handleGenerate = async () => {
     setGenerating(true); setResult(null); setPartialStats(null); setJobLogs([]); setProgress({ percent: 0, stage: 'starting' });

@@ -82,7 +82,6 @@ function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHi
       {...(editMode && !isLocked ? { ...attributes, ...listeners } : {})}
       onClick={() => onEdit(block)}
       className={`p-2 rounded-xl text-[10px] relative transition-all duration-200 group select-none
-        ${isMultiPeriod ? 'min-h-[120px]' : 'min-h-[56px]'}
         ${editMode && !isLocked ? 'cursor-grab active:cursor-grabbing hover:shadow-lg hover:scale-[1.02] hover:-translate-y-0.5' : 'cursor-pointer hover:shadow-sm'}
         ${isLocked ? 'opacity-80 ring-1 ring-amber-400/30' : ''}
         ${isDragging ? 'opacity-30 scale-95 ring-2 ring-primary-400' : ''}
@@ -92,7 +91,8 @@ function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHi
         ${isFlexBlock ? 'border-dashed' : ''}`}
       style={{
         backgroundColor: (block.subject?.color || '#6366f1') + (isAtomic ? '20' : isFlexBlock ? '12' : '15'),
-        borderLeftColor: isActivity ? '#14b8a6' : isClub ? '#ec4899' : (block.subject?.color || '#6366f1')
+        borderLeftColor: isActivity ? '#14b8a6' : isClub ? '#ec4899' : (block.subject?.color || '#6366f1'),
+        ...(isMultiPeriod ? { height: '100%', minHeight: `${Math.max(48 * spanSize, 96)}px` } : { minHeight: '48px' })
       }}
     >
       {editMode && !isLocked && (
@@ -101,7 +101,7 @@ function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHi
         </div>
       )}
 
-      <p className="font-semibold text-slate-800 dark:text-dark-50 truncate text-xs pl-3">{block.subject?.name || 'Free'}</p>
+      <p className="font-semibold text-slate-800 dark:text-dark-50 truncate text-xs pl-3" title={block.subject?.name}>{block.subject?.code || block.subject?.name || 'Free'}</p>
       <p className="text-slate-500 dark:text-dark-400 truncate pl-3">{block.teacher?.shortName || block.teacher?.name || (isFlexBlock ? '—' : '')}</p>
       <p className="text-slate-400 dark:text-dark-500 truncate pl-3">{block.room?.name || ''}</p>
       {block.studentGroup && <span className="text-[8px] text-purple-500 dark:text-purple-400 pl-3">👥 {block.studentGroup}</span>}
@@ -128,22 +128,28 @@ function DraggableBlock({ id, block, day, period, editMode, onEdit, onLock, isHi
 // ═══════════════════════════════════════════════════════════════════
 // DROPPABLE CELL (dnd-kit)
 // ═══════════════════════════════════════════════════════════════════
-function DroppableCell({ id, day, period, editMode, onAddLesson, children }) {
+function DroppableCell({ id, day, period, editMode, onAddLesson, children, rowSpan = 1 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: id,
     data: { day, period },
   });
 
   return (
-    <td className="px-1.5 py-1" ref={setNodeRef}>
+    <td
+      className={`px-1 py-0.5 ${rowSpan > 1 ? 'align-top' : ''}`}
+      ref={setNodeRef}
+      rowSpan={rowSpan > 1 ? rowSpan : undefined}
+      style={rowSpan > 1 ? { verticalAlign: 'top', height: `${rowSpan * 48}px` } : {}}
+    >
       {children || (
         <div
           onClick={() => editMode && onAddLesson && onAddLesson(day, period)}
-          className={`p-2 rounded-lg text-center min-h-[56px] flex items-center justify-center transition-all duration-200
+          className={`p-2 rounded-lg text-center flex items-center justify-center transition-all duration-200
           ${isOver
             ? 'border-2 border-dashed border-primary-400 bg-primary-50 dark:bg-primary-900/20 scale-[1.03] shadow-md'
             : 'border border-dashed border-slate-200/80 dark:border-dark-700/40 bg-slate-50/30 dark:bg-dark-800/20'}
-          ${editMode ? 'cursor-pointer hover:border-primary-300 hover:bg-primary-50/50 dark:hover:bg-primary-900/10' : ''}`}>
+          ${editMode ? 'cursor-pointer hover:border-primary-300 hover:bg-primary-50/50 dark:hover:bg-primary-900/10' : ''}`}
+          style={{ minHeight: rowSpan > 1 ? `${rowSpan * 48 - 8}px` : '48px' }}>
           {isOver ? (
             <span className="text-primary-500 font-medium text-xs animate-pulse">↓ Drop</span>
           ) : editMode ? (
@@ -170,7 +176,7 @@ function DragOverlayBlock({ block }) {
         backdropFilter: 'blur(12px)',
         width: '140px',
       }}>
-      <p className="font-bold text-slate-900 dark:text-dark-50 text-xs truncate">{block.subject?.name || 'Free'}</p>
+      <p className="font-bold text-slate-900 dark:text-dark-50 text-xs truncate" title={block.subject?.name}>{block.subject?.code || block.subject?.name || 'Free'}</p>
       <p className="text-slate-500 dark:text-dark-400 truncate">{block.teacher?.shortName || block.teacher?.name}</p>
       <p className="text-slate-400 dark:text-dark-500 truncate">{block.room?.name}</p>
     </div>
@@ -181,7 +187,7 @@ function DragOverlayBlock({ block }) {
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 export default function TimetableView() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, selectedSchool, selectedSession } = useAuth();
   const [classes, setClasses] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -385,7 +391,7 @@ export default function TimetableView() {
       api.get('/rooms').then(r => setRooms(r.data?.data || r.data || [])),
       api.get('/timetable/list').then(r => { const tts = r.data?.data || r.data || []; setTimetables(tts); if (tts.length) setSelectedTT(tts[0]._id); })
     ]);
-  }, []);
+  }, [selectedSchool, selectedSession]);
 
   useEffect(() => {
     if (!selectedTT) return;
@@ -414,13 +420,14 @@ export default function TimetableView() {
   };
 
   // Get all blocks at a day+period (may be multiple for split groups)
+  // Show reserved blocks WITH a subject (assembly/prayer) — hide subjectless reserved blocks (pure breaks)
   const getBlock = useCallback((day, period) =>
-    blocks.find(b => b.day === day && b.periods?.includes(period) && b.type !== 'reserved'),
+    blocks.find(b => b.day === day && b.periods?.includes(period) && (b.type !== 'reserved' || b.subject)),
     [blocks]
   );
 
   const getBlocksAt = useCallback((day, period) =>
-    blocks.filter(b => b.day === day && b.periods?.includes(period) && b.type !== 'reserved'),
+    blocks.filter(b => b.day === day && b.periods?.includes(period) && (b.type !== 'reserved' || b.subject)),
     [blocks]
   );
 
@@ -931,7 +938,7 @@ export default function TimetableView() {
                           const isHighlighted = highlightTeacher && block?.teacher?._id === highlightTeacher;
 
                           return (
-                            <DroppableCell key={d} id={cellId} day={d} period={p} editMode={editMode} onAddLesson={openAddLessonModal}>
+                            <DroppableCell key={d} id={cellId} day={d} period={p} editMode={editMode} onAddLesson={openAddLessonModal} rowSpan={span}>
                               {isSplitGroup ? (
                                 /* Split group: stacked mini-cards */
                                 <div className="space-y-1">

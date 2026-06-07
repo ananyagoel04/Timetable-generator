@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Shield, AlertTriangle, Info, CheckCircle, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Plus, Trash2, Shield, AlertTriangle, Info, CheckCircle, ToggleLeft, ToggleRight, Edit3 } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 const ruleTypes = [
   { value: 'max_subject_per_day', label: 'Max same subject per day', desc: 'Limit how many times a subject appears in one day', category: 'distribution' },
@@ -31,11 +32,13 @@ const categoryColors = {
 };
 
 export default function CustomRules() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [rules, setRules] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({
     name: '', type: 'max_subject_per_day', severity: 'soft', isActive: true,
     config: {}, subject: '', subjects: [], teacher: '', day: '', value: 2
@@ -43,11 +46,11 @@ export default function CustomRules() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/rules/custom').then(r => setRules(r.data || [])),
-      api.get('/subjects').then(r => setSubjects(r.data || [])),
-      api.get('/teachers').then(r => setTeachers(r.data || []))
+      api.get('/rules/custom').then(r => setRules(r.data?.data || r.data || [])),
+      api.get('/subjects').then(r => setSubjects(r.data?.data || r.data || [])),
+      api.get('/teachers').then(r => setTeachers(r.data?.data || r.data || []))
     ]).finally(() => setLoading(false));
-  }, []);
+  }, [selectedSchool, selectedSession]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -66,10 +69,16 @@ export default function CustomRules() {
           value: form.value
         }
       };
-      await api.post('/rules/custom', payload);
-      toast.success('Rule created');
+      if (editingId) {
+        await api.put(`/rules/custom/${editingId}`, payload);
+        toast.success('Rule updated');
+      } else {
+        await api.post('/rules/custom', payload);
+        toast.success('Rule created');
+      }
       setModalOpen(false);
-      api.get('/rules/custom').then(r => setRules(r.data || []));
+      setEditingId(null);
+      api.get('/rules/custom').then(r => setRules(r.data?.data || r.data || []));
     } catch (err) { toast.error(err.message); }
   };
 
@@ -89,6 +98,23 @@ export default function CustomRules() {
     } catch (err) { toast.error(err.message); }
   };
 
+  const startEdit = (rule) => {
+    setEditingId(rule._id);
+    setForm({
+      name: rule.name || '',
+      type: rule.type || 'max_subject_per_day',
+      severity: rule.severity || 'soft',
+      isActive: rule.isActive !== false,
+      config: rule.config || {},
+      subject: rule.config?.subject || '',
+      subjects: rule.config?.subjects || [],
+      teacher: rule.config?.teacher || '',
+      day: rule.config?.day || '',
+      value: rule.config?.value || 2
+    });
+    setModalOpen(true);
+  };
+
   const needsSubject = ['max_subject_per_day','morning_preference','afternoon_preference','no_consecutive','subject_not_on_day','pair_subjects','even_distribution','lab_after_theory'].includes(form.type);
   const isMultiSubject = ['morning_preference','afternoon_preference'].includes(form.type);
   const needsTeacher = ['teacher_max_continuous','teacher_not_on_day'].includes(form.type);
@@ -99,7 +125,7 @@ export default function CustomRules() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div><h1 className="page-title">Rules & Preferences</h1><p className="page-subtitle">{rules.length} custom rules · {rules.filter(r => r.isActive).length} active</p></div>
-        <button onClick={() => { setForm({ name: '', type: 'max_subject_per_day', severity: 'soft', isActive: true, config: {}, subject: '', subjects: [], teacher: '', day: '', value: 2 }); setModalOpen(true); }} className="btn-primary flex items-center gap-2"><Plus size={18} /> Add Rule</button>
+        <button onClick={() => { setEditingId(null); setForm({ name: '', type: 'max_subject_per_day', severity: 'soft', isActive: true, config: {}, subject: '', subjects: [], teacher: '', day: '', value: 2 }); setModalOpen(true); }} className="btn-primary flex items-center gap-2"><Plus size={18} /> Add Rule</button>
       </div>
 
       {/* Rule Templates */}
@@ -149,13 +175,14 @@ export default function CustomRules() {
                   )}
                 </div>
                 <button onClick={() => deleteRule(rule._id)} className="p-2 rounded-lg hover:bg-red-500/20 text-slate-400 dark:text-dark-500 hover:text-red-400 transition-colors shrink-0"><Trash2 size={16} /></button>
+                <button onClick={() => startEdit(rule)} className="p-2 rounded-lg hover:bg-blue-500/20 text-slate-400 dark:text-dark-500 hover:text-blue-400 transition-colors shrink-0"><Edit3 size={16} /></button>
               </div>
             );
           })}
         </div>
       )}
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Add Custom Rule" size="md">
+      <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); setEditingId(null); }} title={editingId ? 'Edit Custom Rule' : 'Add Custom Rule'} size="md">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block">Rule Name</label>
             <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input-field" placeholder="e.g., Max 2 Maths per day" />
@@ -206,8 +233,8 @@ export default function CustomRules() {
             <input value={form.value} onChange={e => setForm(f => ({ ...f, value: +e.target.value }))} type="number" min="1" max="10" className="input-field" />
           </div>}
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancel</button>
-            <button type="submit" className="btn-primary">Create Rule</button>
+            <button type="button" onClick={() => { setModalOpen(false); setEditingId(null); }} className="btn-secondary">Cancel</button>
+            <button type="submit" className="btn-primary">{editingId ? 'Update Rule' : 'Create Rule'}</button>
           </div>
         </form>
       </Modal>

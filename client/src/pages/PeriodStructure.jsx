@@ -6,6 +6,7 @@ import PeriodOverride from '../components/PeriodOverride';
 import TimetablePreview from '../components/TimetablePreview';
 import { dedupeBreaks, DAY_NAMES } from '../utils/breakUtils';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 const slotTypeConfig = {
   period: { icon: Clock, color: 'text-primary-400', bg: 'bg-primary-500/20' },
@@ -22,6 +23,7 @@ const templateBadge = {
 };
 
 export default function PeriodStructure() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [structures, setStructures] = useState([]);
   const [selected, setSelected] = useState(null);
   const [classes, setClasses] = useState([]);

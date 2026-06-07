@@ -3,8 +3,10 @@ import { Plus, Trash2, Edit2, Layers } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 export default function CombinationRules() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [rules, setRules] = useState([]);
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);

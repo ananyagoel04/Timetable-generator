@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import PermissionGate from '../components/ui/PermissionGate';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import Modal from '../components/ui/Modal';
+import { useAuth } from '../context/AuthContext';
 
 const TYPE_CONFIG = {
   teacher_clash: { icon: Users, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20', label: 'Teacher Double-Booked' },
@@ -36,6 +37,7 @@ const SEVERITY_COLORS = {
 const FIX_ICONS = { move_to_period: ArrowRight, swap_teacher: Users, change_room: DoorOpen, split_combined: Layers };
 
 export default function ConflictCenter() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [conflicts, setConflicts] = useState([]);
   const [timetables, setTimetables] = useState([]);
   const [selectedTT, setSelectedTT] = useState('');

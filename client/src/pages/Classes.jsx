@@ -3,8 +3,10 @@ import { Plus, Edit2, Trash2, Search, DoorOpen } from 'lucide-react';
 import api from '../api/axios';
 import Modal from '../components/ui/Modal';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 export default function Classes() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [classes, setClasses] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [rooms, setRooms] = useState([]);
@@ -12,13 +14,13 @@ export default function Classes() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState({ grade: 9, section: 'A', stream: 'none', studentCount: 35, classTeacher: '', roomPreference: '' });
+  const [form, setForm] = useState({ grade: 9, section: 'A', stream: 'none', studentCount: 35, classTeacher: '', roomPreference: '', fixedClassroom: false });
 
   useEffect(() => {
     fetchClasses();
     api.get('/teachers').then(r => setTeachers(r.data?.data || r.data || []));
     api.get('/rooms').then(r => setRooms(r.data?.data || r.data || []));
-  }, []);
+  }, [selectedSchool, selectedSession]);
   const fetchClasses = () => api.get('/classes').then(r => { setClasses(r.data || []); setLoading(false); });
 
   const handleSubmit = async (e) => {
@@ -28,7 +30,7 @@ export default function Classes() {
       toast.success(editing ? 'Updated' : 'Added'); setModalOpen(false); fetchClasses();
     } catch (err) { toast.error(err.message); }
   };
-  const handleEdit = (c) => { setEditing(c); setForm({ grade: c.grade, section: c.section, stream: c.stream || 'none', studentCount: c.studentCount, classTeacher: c.classTeacher?._id || '', roomPreference: c.roomPreference?._id || '' }); setModalOpen(true); };
+  const handleEdit = (c) => { setEditing(c); setForm({ grade: c.grade, section: c.section, stream: c.stream || 'none', studentCount: c.studentCount, classTeacher: c.classTeacher?._id || '', roomPreference: c.roomPreference?._id || '', fixedClassroom: c.fixedClassroom || false }); setModalOpen(true); };
   const handleDelete = async (id) => { if (!confirm('Delete?')) return; await api.delete(`/classes/${id}`); fetchClasses(); };
   const filtered = classes.filter(c => c.name?.toLowerCase().includes(search.toLowerCase()));
 
@@ -36,7 +38,7 @@ export default function Classes() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div><h1 className="page-title">Classes</h1><p className="page-subtitle">{classes.length} classes</p></div>
-        <button onClick={() => { setEditing(null); setForm({ grade: 9, section: 'A', stream: 'none', studentCount: 35, classTeacher: '', roomPreference: '' }); setModalOpen(true); }} className="btn-primary flex items-center gap-2"><Plus size={18} /> Add Class</button>
+        <button onClick={() => { setEditing(null); setForm({ grade: 9, section: 'A', stream: 'none', studentCount: 35, classTeacher: '', roomPreference: '', fixedClassroom: false }); setModalOpen(true); }} className="btn-primary flex items-center gap-2"><Plus size={18} /> Add Class</button>
       </div>
       <div className="relative max-w-md"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-500" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="input-field pl-9" /></div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -49,7 +51,7 @@ export default function Classes() {
             <h3 className="font-semibold text-slate-900 dark:text-dark-50">{c.name}</h3>
             <p className="text-xs text-slate-500 dark:text-dark-400 mt-1">{c.studentCount} students</p>
             {c.classTeacher && <p className="text-xs text-slate-400 dark:text-dark-500 mt-1">CT: {c.classTeacher.name}</p>}
-            {c.roomPreference && <p className="text-xs text-slate-400 dark:text-dark-500 mt-0.5 flex items-center gap-1"><DoorOpen size={10} /> Room: {c.roomPreference.name || c.roomPreference}</p>}
+            {c.roomPreference && <p className="text-xs text-slate-400 dark:text-dark-500 mt-0.5 flex items-center gap-1"><DoorOpen size={10} /> Room: {c.roomPreference.name || c.roomPreference}{c.fixedClassroom ? <span className="ml-1 px-1 py-px text-[8px] font-bold rounded bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400">STRICT</span> : ''}</p>}
             <div className="flex gap-2 mt-2">
               {c.stream !== 'none' && <span className="badge bg-purple-500/20 text-purple-400 text-[10px]">{c.stream}</span>}
               {c.studentGroups?.map((g, i) => <span key={i} className="badge bg-slate-200 dark:bg-dark-700 text-slate-600 dark:text-dark-300 text-[10px]">{g.name}</span>)}
@@ -74,6 +76,12 @@ export default function Classes() {
               <option value="">No fixed room</option>
               {rooms.map(r => <option key={r._id} value={r._id}>{r.name}{r.capacity ? ` (${r.capacity} seats)` : ''}</option>)}
             </select>
+            {form.roomPreference && (
+              <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                <input type="checkbox" checked={form.fixedClassroom} onChange={e => setForm(f => ({...f, fixedClassroom: e.target.checked}))} className="rounded border-slate-300 text-primary-600 focus:ring-primary-500" />
+                <span className="text-xs text-slate-600 dark:text-dark-300">Fixed classroom <span className="text-[10px] text-red-500 font-medium">(strict — class MUST be in this room)</span></span>
+              </label>
+            )}
           </div>
           <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancel</button><button type="submit" className="btn-primary">{editing ? 'Update' : 'Create'}</button></div>
         </form>

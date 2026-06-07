@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Shield, Plus, Edit3, Trash2, Check, X, Lock, ChevronDown, ChevronRight } from 'lucide-react';
+import { Shield, Plus, Edit3, Trash2, Check, X, Lock, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import { useAuth } from '../context/AuthContext';
 
 const PERM_CATEGORIES = {
   timetable: { label: 'Timetable', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400' },
@@ -15,6 +16,7 @@ const PERM_CATEGORIES = {
 };
 
 export default function RoleManagement() {
+  const { selectedSchool, selectedSession } = useAuth();
   const [roles, setRoles] = useState([]);
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -26,7 +28,7 @@ export default function RoleManagement() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [selectedSchool, selectedSession]);
 
   const loadData = async () => {
     try {
@@ -92,6 +94,21 @@ export default function RoleManagement() {
     setEditing(role);
     setForm({ displayName: role.displayName, description: role.description || '', permissions: [...role.permissions] });
     setShowCreate(false);
+  };
+
+  const cloneRole = async (role) => {
+    try {
+      await api.post('/roles', {
+        name: role.name + '_copy',
+        displayName: `${role.displayName} (Copy)`,
+        description: role.description || '',
+        permissions: [...role.permissions]
+      });
+      toast.success(`Cloned "${role.displayName}" — edit the copy to rename it`);
+      loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Clone failed');
+    }
   };
 
   const togglePerm = (code) => {
@@ -229,6 +246,9 @@ export default function RoleManagement() {
                 <span className="text-xs text-slate-400 dark:text-dark-500">{role.permissions?.length || 0} perms</span>
                 {!role.isSystem && (
                   <>
+                    <button onClick={(e) => { e.stopPropagation(); cloneRole(role); }} className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/20 rounded-lg" title="Clone role">
+                      <Copy className="w-3.5 h-3.5 text-blue-400" />
+                    </button>
                     <button onClick={(e) => { e.stopPropagation(); startEdit(role); }} className="p-1.5 hover:bg-slate-100 dark:hover:bg-dark-700 rounded-lg">
                       <Edit3 className="w-3.5 h-3.5 text-slate-400" />
                     </button>

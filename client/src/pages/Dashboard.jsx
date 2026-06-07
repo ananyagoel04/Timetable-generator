@@ -11,7 +11,7 @@ import PermissionGate from '../components/ui/PermissionGate';
 import toast from 'react-hot-toast';
 
 export default function Dashboard() {
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, selectedSchool, selectedSession } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [todaySubs, setTodaySubs] = useState(null);
@@ -33,7 +33,7 @@ export default function Dashboard() {
 
     // Setup readiness
     api.get('/setup/status').then(r => setSetupStatus(r.data)).catch(() => {});
-  }, []);
+  }, [selectedSchool, selectedSession]);
 
   const approveSub = async (id) => {
     try {

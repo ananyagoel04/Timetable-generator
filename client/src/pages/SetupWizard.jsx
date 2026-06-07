@@ -4,6 +4,7 @@ import { CheckCircle, ChevronRight, ChevronLeft, School, Clock, Users, BookOpen,
   Link2, BarChart2, ClipboardCheck, ArrowRight, Sparkles, RotateCcw } from 'lucide-react';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 const STEPS = [
   { id: 'school', label: 'School Info', icon: School, desc: 'Name, code, working days, branding', required: true },
@@ -122,6 +123,8 @@ function SessionManager({ school }) {
 }
 
 export default function SetupWizard() {
+  const { user } = useAuth();
+  const isPlatformUser = user?.role === 'platform_admin' || user?.role === 'developer';
   const [step, setStep] = useState(0);
   const [school, setSchool] = useState(null);
   const [periods, setPeriods] = useState(null);
@@ -304,12 +307,14 @@ export default function SetupWizard() {
               <p className="text-[10px] text-slate-400 dark:text-dark-500">steps complete</p>
             </div>
           </div>
-          {/* Seed button */}
-          <button onClick={handleSeedData} disabled={seeding}
-            className="btn-secondary flex items-center gap-2 text-sm py-2.5 px-4">
-            {seeding ? <Loader2 className="animate-spin" size={15} /> : <Database size={15} />}
-            {seeding ? 'Seeding...' : 'Seed Demo Data'}
-          </button>
+          {/* Seed button — platform/developer only */}
+          {isPlatformUser && (
+            <button onClick={handleSeedData} disabled={seeding}
+              className="btn-secondary flex items-center gap-2 text-sm py-2.5 px-4">
+              {seeding ? <Loader2 className="animate-spin" size={15} /> : <Database size={15} />}
+              {seeding ? 'Seeding...' : 'Seed Demo Data'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -481,7 +486,7 @@ export default function SetupWizard() {
               ) : (
                 <div className="text-center py-8">
                   <Clock size={36} className="text-slate-300 dark:text-dark-600 mx-auto mb-3" />
-                  <p className="text-slate-500 dark:text-dark-400 text-sm">Default period structure will be created when you seed data or generate.</p>
+                  <p className="text-slate-500 dark:text-dark-400 text-sm">Configure your period structure in the Periods page to define daily timings.</p>
                 </div>
               )}
             </div>
