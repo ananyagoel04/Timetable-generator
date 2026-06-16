@@ -85,6 +85,22 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Platform Admin: No School Selected Gate */}
+      {(user?.role === 'platform_admin' || user?.role === 'developer') && !selectedSchool && (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-500/30 p-8 text-center">
+          <div className="absolute -right-10 -top-10 w-40 h-40 bg-amber-400/5 rounded-full blur-2xl" />
+          <School size={48} className="mx-auto text-amber-400 mb-4" />
+          <h2 className="text-xl font-bold text-slate-800 dark:text-dark-50 mb-2">Select a School to Continue</h2>
+          <p className="text-sm text-slate-500 dark:text-dark-400 max-w-md mx-auto mb-4">
+            As a platform administrator, you need to select a school from the sidebar to view its dashboard, manage data, and generate timetables.
+          </p>
+          <div className="flex items-center justify-center gap-2 text-xs text-amber-500 font-medium">
+            <AlertTriangle size={14} />
+            Use the school dropdown in the sidebar to select a school
+          </div>
+        </div>
+      )}
+
       {/* Welcome Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-primary-600 via-purple-600 to-indigo-600 p-5 sm:p-7 shadow-2xl shadow-primary-500/20">
         <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/5 rounded-full blur-2xl" />

@@ -48,6 +48,36 @@ export default function Generator() {
   const [loadingLocked, setLoadingLocked] = useState(false);
   const [requireTeacher, setRequireTeacher] = useState(true);
 
+  // P15H-4: Config dialog state
+  const [configStep, setConfigStep] = useState(0);
+  const [periodStructures, setPeriodStructures] = useState([]);
+  const [selectedPeriodStructure, setSelectedPeriodStructure] = useState(null);
+
+  const loadPeriodStructures = useCallback(async () => {
+    try {
+      const res = await api.get('/setup/period-structures');
+      const data = res.data?.data || res.data || [];
+      const list = Array.isArray(data) ? data : [];
+      setPeriodStructures(list);
+      if (list.length > 0 && !selectedPeriodStructure) {
+        const active = list.find(p => p.status === 'active');
+        setSelectedPeriodStructure(active?._id || list[0]._id);
+      }
+    } catch { setPeriodStructures([]); }
+  }, [selectedSchool, selectedSession]);
+
+  // P15H-6: Simulation preview
+  const [simulation, setSimulation] = useState(null);
+  const [simLoading, setSimLoading] = useState(false);
+  const runSimulation = useCallback(async () => {
+    setSimLoading(true);
+    try {
+      const res = await api.post('/generation/simulation', {});
+      setSimulation(res.data?.data || res.data);
+    } catch { toast.error('Simulation failed'); }
+    setSimLoading(false);
+  }, [selectedSchool, selectedSession]);
+
   useEffect(() => { api.get('/timetable/list').then(r => setTimetables(r.data || [])); }, [selectedSchool, selectedSession]);
 
   // Cleanup polling on unmount
@@ -110,7 +140,8 @@ export default function Generator() {
       const body = {
         lockedBlockIds: [...selectedLocked],
         keepLockedBlocks: selectedLocked.size > 0,
-        requireTeacherForActivities: requireTeacher
+        requireTeacherForActivities: requireTeacher,
+        periodStructureId: selectedPeriodStructure || null
       };
       const res = await api.post('/generation/jobs', body);
       if (res.data.success) {
@@ -183,53 +214,229 @@ export default function Generator() {
           ))}
         </div>
 
-        {/* Pre-generation options */}
+        {/* Pre-generation configuration panel */}
         {!generating && !result && (
           <div className="mb-6">
-            <button onClick={() => { setShowOptions(v => !v); if (!showOptions && lockedBlocks.length === 0) loadLockedBlocks(); }} className="text-xs font-medium text-slate-400 dark:text-dark-400 flex items-center gap-1 mx-auto hover:text-slate-600 dark:hover:text-dark-200 transition-colors">
-              ⚙️ Generation Options {showOptions ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <button onClick={() => { setShowOptions(v => !v); if (!showOptions && lockedBlocks.length === 0) loadLockedBlocks(); if (!showOptions) loadPeriodStructures(); }}
+              className="text-xs font-medium text-slate-400 dark:text-dark-400 flex items-center gap-1 mx-auto hover:text-slate-600 dark:hover:text-dark-200 transition-colors">
+              ⚙️ Configuration {showOptions ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </button>
             {showOptions && (
-              <div className="mt-3 bg-white/50 dark:bg-dark-800/50 rounded-xl p-4 text-left space-y-4 animate-slide-up max-w-lg mx-auto border border-slate-200/50 dark:border-dark-700/50">
-                {/* Activity teacher toggle */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium text-slate-700 dark:text-dark-200">Require teacher for activities/clubs</p>
-                    <p className="text-[10px] text-slate-400 dark:text-dark-500">When off, activity/club periods can be placed without a teacher</p>
-                  </div>
-                  <button onClick={() => setRequireTeacher(v => !v)} className="text-slate-400 hover:text-emerald-500 transition-colors">
-                    {requireTeacher ? <ToggleRight size={24} className="text-emerald-500" /> : <ToggleLeft size={24} />}
-                  </button>
+              <div className="mt-3 animate-slide-up max-w-lg mx-auto space-y-3">
+                {/* Step Tabs */}
+                <div className="flex gap-1 bg-white/40 dark:bg-dark-800/40 rounded-xl p-1 border border-slate-200/50 dark:border-dark-700/50">
+                  {[
+                    { id: 0, label: 'Periods', icon: Clock },
+                    { id: 1, label: 'Options', icon: Database },
+                    { id: 2, label: 'Constraints', icon: AlertTriangle },
+                    { id: 3, label: 'Launch', icon: Zap },
+                  ].map(tab => (
+                    <button key={tab.id} onClick={() => setConfigStep(tab.id)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-all ${
+                        configStep === tab.id
+                          ? 'bg-primary-500 text-white shadow-sm'
+                          : 'text-slate-500 dark:text-dark-400 hover:bg-slate-100 dark:hover:bg-dark-700'
+                      }`}>
+                      <tab.icon size={12} />
+                      <span className="hidden sm:inline">{tab.label}</span>
+                    </button>
+                  ))}
                 </div>
 
-                {/* Locked blocks selection */}
-                <div>
-                  <p className="text-xs font-medium text-slate-700 dark:text-dark-200 mb-2 flex items-center gap-1"><Lock size={12} /> Locked Blocks from Published Timetable</p>
-                  {loadingLocked ? (
-                    <p className="text-[10px] text-slate-400"><Loader2 size={12} className="inline animate-spin mr-1" />Loading...</p>
-                  ) : lockedBlocks.length === 0 ? (
-                    <p className="text-[10px] text-slate-400">No published timetable with locked blocks found</p>
-                  ) : (
-                    <>
-                      <div className="flex gap-2 mb-2">
-                        <button onClick={() => setSelectedLocked(new Set(lockedBlocks.map(b => b._id)))} className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20">Select All ({lockedBlocks.length})</button>
-                        <button onClick={() => setSelectedLocked(new Set())} className="text-[10px] px-2 py-0.5 rounded bg-slate-500/10 text-slate-500 hover:bg-slate-500/20">Deselect All</button>
-                      </div>
-                      <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
-                        {lockedBlocks.map(lb => (
-                          <label key={lb._id} className="flex items-center gap-2 text-[10px] cursor-pointer hover:bg-slate-100/50 dark:hover:bg-dark-700/50 rounded-lg p-1.5 transition-colors">
-                            <input type="checkbox" checked={selectedLocked.has(lb._id)} onChange={() => toggleLockedBlock(lb._id)} className="rounded border-slate-300 text-emerald-500 focus:ring-emerald-500" />
-                            <span className="font-medium text-slate-700 dark:text-dark-200">{lb.subject?.name || 'Reserved'}</span>
-                            <span className="text-slate-400 dark:text-dark-500">• {lb.day} P{lb.periods?.join(',')}</span>
-                            {lb.teacher && <span className="text-slate-400 dark:text-dark-500">• {lb.teacher.name}</span>}
-                            {lb.classes?.length > 0 && <span className="text-slate-400 dark:text-dark-500">• {lb.classes.map(c => c.name).join(', ')}</span>}
-                          </label>
+                {/* Step 0: Period Structure Selection */}
+                {configStep === 0 && (
+                  <div className="bg-white/50 dark:bg-dark-800/50 rounded-xl p-4 text-left border border-slate-200/50 dark:border-dark-700/50 space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Clock size={14} className="text-primary-400" />
+                      <p className="text-xs font-semibold text-slate-700 dark:text-dark-200">Period Structure</p>
+                    </div>
+                    <p className="text-[10px] text-slate-400 dark:text-dark-500">Select which period structure the engine should use for scheduling.</p>
+                    {periodStructures.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {periodStructures.map(ps => (
+                          <button key={ps._id} onClick={() => setSelectedPeriodStructure(ps._id)}
+                            className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
+                              selectedPeriodStructure === ps._id
+                                ? 'border-primary-500 bg-primary-500/10'
+                                : 'border-slate-200 dark:border-dark-700 hover:border-slate-300 dark:hover:border-dark-600'
+                            }`}>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className={`text-xs font-semibold ${selectedPeriodStructure === ps._id ? 'text-primary-500' : 'text-slate-700 dark:text-dark-200'}`}>
+                                  {ps.name || 'Default Structure'}
+                                </p>
+                                <p className="text-[10px] text-slate-400 dark:text-dark-500 mt-0.5">
+                                  {ps.defaultDayTemplate?.filter(s => s.isSchedulable).length || 0} teaching slots · {ps.defaultDayTemplate?.filter(s => !s.isSchedulable).length || 0} breaks
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                {ps.status === 'active' && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-500 font-medium">Active</span>}
+                                {selectedPeriodStructure === ps._id && <CheckCircle size={14} className="text-primary-500" />}
+                              </div>
+                            </div>
+                          </button>
                         ))}
                       </div>
-                      <p className="text-[10px] text-slate-400 mt-1">{selectedLocked.size} of {lockedBlocks.length} locked blocks will be preserved</p>
-                    </>
-                  )}
-                </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-400">Loading period structures...</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 1: Generation Options */}
+                {configStep === 1 && (
+                  <div className="bg-white/50 dark:bg-dark-800/50 rounded-xl p-4 text-left border border-slate-200/50 dark:border-dark-700/50 space-y-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Database size={14} className="text-primary-400" />
+                      <p className="text-xs font-semibold text-slate-700 dark:text-dark-200">Generation Options</p>
+                    </div>
+
+                    {/* Activity teacher toggle */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-medium text-slate-700 dark:text-dark-200">Require teacher for activities/clubs</p>
+                        <p className="text-[10px] text-slate-400 dark:text-dark-500">When off, activity/club periods can be placed without a teacher</p>
+                      </div>
+                      <button onClick={() => setRequireTeacher(v => !v)} className="text-slate-400 hover:text-emerald-500 transition-colors">
+                        {requireTeacher ? <ToggleRight size={24} className="text-emerald-500" /> : <ToggleLeft size={24} />}
+                      </button>
+                    </div>
+
+                    {/* Locked blocks */}
+                    <div>
+                      <p className="text-xs font-medium text-slate-700 dark:text-dark-200 mb-2 flex items-center gap-1"><Lock size={12} /> Locked Blocks</p>
+                      {loadingLocked ? (
+                        <p className="text-[10px] text-slate-400"><Loader2 size={12} className="inline animate-spin mr-1" />Loading...</p>
+                      ) : lockedBlocks.length === 0 ? (
+                        <p className="text-[10px] text-slate-400">No published timetable with locked blocks found</p>
+                      ) : (
+                        <>
+                          <div className="flex gap-2 mb-2">
+                            <button onClick={() => setSelectedLocked(new Set(lockedBlocks.map(b => b._id)))} className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20">Select All ({lockedBlocks.length})</button>
+                            <button onClick={() => setSelectedLocked(new Set())} className="text-[10px] px-2 py-0.5 rounded bg-slate-500/10 text-slate-500 hover:bg-slate-500/20">Deselect All</button>
+                          </div>
+                          <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                            {lockedBlocks.map(lb => (
+                              <label key={lb._id} className="flex items-center gap-2 text-[10px] cursor-pointer hover:bg-slate-100/50 dark:hover:bg-dark-700/50 rounded-lg p-1.5 transition-colors">
+                                <input type="checkbox" checked={selectedLocked.has(lb._id)} onChange={() => toggleLockedBlock(lb._id)} className="rounded border-slate-300 text-emerald-500 focus:ring-emerald-500" />
+                                <span className="font-medium text-slate-700 dark:text-dark-200">{lb.subject?.name || 'Reserved'}</span>
+                                <span className="text-slate-400 dark:text-dark-500">• {lb.day} P{lb.periods?.join(',')}</span>
+                              </label>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-1">{selectedLocked.size} of {lockedBlocks.length} locked blocks preserved</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 2: Constraints Review */}
+                {configStep === 2 && (
+                  <div className="bg-white/50 dark:bg-dark-800/50 rounded-xl p-4 text-left border border-slate-200/50 dark:border-dark-700/50 space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertTriangle size={14} className="text-amber-400" />
+                      <p className="text-xs font-semibold text-slate-700 dark:text-dark-200">Active Constraints</p>
+                    </div>
+                    <div className="space-y-2">
+                      {[
+                        { label: 'No teacher clashes', desc: 'A teacher cannot be in two places at once', type: 'Hard', color: 'emerald' },
+                        { label: 'No room clashes', desc: 'A room cannot host two classes at once', type: 'Hard', color: 'emerald' },
+                        { label: 'Break/lunch periods', desc: 'Non-schedulable slots are always honored', type: 'Hard', color: 'emerald' },
+                        { label: 'Combined classes', desc: 'Multi-section shared periods placed atomically', type: 'Hard', color: 'emerald' },
+                        { label: 'Time preferences', desc: 'Before/after lunch subject preferences', type: 'Soft', color: 'blue' },
+                        { label: 'Subject day spread', desc: 'Distribute subjects evenly across days', type: 'Soft', color: 'blue' },
+                        { label: 'Teacher load balance', desc: 'Even workload across the week', type: 'Soft', color: 'blue' },
+                        { label: 'Edge period balance', desc: 'Avoid same subject always at first/last', type: 'Soft', color: 'blue' },
+                      ].map((c, i) => (
+                        <div key={i} className="flex items-center gap-3 p-2 rounded-lg bg-white/40 dark:bg-dark-900/30 border border-slate-100/50 dark:border-dark-700/30">
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold bg-${c.color}-500/15 text-${c.color}-500`}>{c.type}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-medium text-slate-700 dark:text-dark-200">{c.label}</p>
+                            <p className="text-[9px] text-slate-400 dark:text-dark-500">{c.desc}</p>
+                          </div>
+                          <CheckCircle size={12} className="text-emerald-400 shrink-0" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 3: Launch Summary */}
+                {configStep === 3 && (
+                  <div className="bg-white/50 dark:bg-dark-800/50 rounded-xl p-4 text-left border border-slate-200/50 dark:border-dark-700/50 space-y-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Zap size={14} className="text-emerald-400" />
+                      <p className="text-xs font-semibold text-slate-700 dark:text-dark-200">Launch Summary</p>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50/60 dark:bg-dark-900/30">
+                        <span className="text-[11px] text-slate-500 dark:text-dark-400">Period Structure</span>
+                        <span className="text-[11px] font-semibold text-slate-700 dark:text-dark-200">
+                          {periodStructures.find(p => p._id === selectedPeriodStructure)?.name || 'Auto-detect'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50/60 dark:bg-dark-900/30">
+                        <span className="text-[11px] text-slate-500 dark:text-dark-400">Activity Teachers</span>
+                        <span className={`text-[11px] font-semibold ${requireTeacher ? 'text-emerald-500' : 'text-amber-500'}`}>
+                          {requireTeacher ? 'Required' : 'Optional'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50/60 dark:bg-dark-900/30">
+                        <span className="text-[11px] text-slate-500 dark:text-dark-400">Locked Blocks</span>
+                        <span className="text-[11px] font-semibold text-slate-700 dark:text-dark-200">{selectedLocked.size} blocks</span>
+                      </div>
+                    </div>
+                    {/* Simulation Preview */}
+                    <div className="pt-2 border-t border-slate-200/50 dark:border-dark-700/50">
+                      <button onClick={runSimulation} disabled={simLoading}
+                        className="w-full text-xs font-medium px-3 py-2 rounded-lg bg-primary-500/10 text-primary-500 hover:bg-primary-500/20 transition-all flex items-center justify-center gap-1.5">
+                        {simLoading ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
+                        {simLoading ? 'Running Preview...' : simulation ? 'Re-run Preview' : 'Run Preview Check'}
+                      </button>
+                      {simulation && (
+                        <div className="mt-2 space-y-2">
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {[
+                              { l: 'Classes', v: simulation.summary?.classes },
+                              { l: 'Teachers', v: simulation.summary?.teachers },
+                              { l: 'Rooms', v: simulation.summary?.rooms },
+                              { l: 'Subjects', v: simulation.summary?.subjects },
+                            ].map((s, i) => (
+                              <div key={i} className="text-center p-1.5 rounded-lg bg-slate-50/80 dark:bg-dark-900/30">
+                                <p className="text-[10px] text-slate-400">{s.l}</p>
+                                <p className="text-sm font-bold text-slate-700 dark:text-dark-200">{s.v ?? 0}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50/60 dark:bg-dark-900/30">
+                            <span className="text-[10px] text-slate-400">Utilization</span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-20 h-1.5 rounded-full bg-slate-200 dark:bg-dark-700 overflow-hidden">
+                                <div className={`h-full rounded-full ${(simulation.capacity?.utilizationPercent || 0) > 90 ? 'bg-red-500' : 'bg-emerald-500'}`}
+                                  style={{ width: `${Math.min(simulation.capacity?.utilizationPercent || 0, 100)}%` }} />
+                              </div>
+                              <span className="text-[10px] font-semibold text-slate-600 dark:text-dark-300">{simulation.capacity?.utilizationPercent || 0}%</span>
+                            </div>
+                          </div>
+                          {simulation.warnings?.length > 0 && (
+                            <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                              {simulation.warnings.map((w, i) => (
+                                <p key={i} className="text-[9px] text-amber-500 flex items-start gap-1"><AlertTriangle size={10} className="shrink-0 mt-0.5" />{w}</p>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${simulation.ready ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                            <span className={`text-[10px] font-semibold ${simulation.ready ? 'text-emerald-500' : 'text-red-500'}`}>
+                              {simulation.ready ? 'Ready to generate' : 'Not ready — fix warnings above'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

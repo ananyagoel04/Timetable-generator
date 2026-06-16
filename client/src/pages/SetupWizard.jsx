@@ -123,7 +123,7 @@ function SessionManager({ school }) {
 }
 
 export default function SetupWizard() {
-  const { user } = useAuth();
+  const { user, selectedSchool, selectedSession } = useAuth();
   const isPlatformUser = user?.role === 'platform_admin' || user?.role === 'developer';
   const [step, setStep] = useState(0);
   const [school, setSchool] = useState(null);
@@ -157,7 +157,7 @@ export default function SetupWizard() {
       });
     } catch (e) { /* non-critical */ }
     setLoading(false);
-  }, []);
+  }, [selectedSchool, selectedSession]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
