@@ -3,15 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { GraduationCap, Eye, EyeOff, LogIn, Sun, Moon, Monitor } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+// NOTE: Self-registration is disabled. Users are created by the platform admin only.
 
 export default function Login() {
-  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('admin@sunrise.edu.in');
   const [password, setPassword] = useState('admin123');
-  const [name, setName] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const { login, register } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
 
   // Theme management for login page
@@ -38,13 +37,8 @@ export default function Login() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      if (isLogin) {
-        await login(email, password);
-        toast.success('Welcome back!');
-      } else {
-        await register(name, email, password);
-        toast.success('Account created!');
-      }
+      await login(email, password);
+      toast.success('Welcome back!');
       navigate('/');
     } catch (err) {
       toast.error(err.message);
@@ -94,18 +88,8 @@ export default function Login() {
         </div>
 
         <div className="glass-card p-8 shadow-2xl shadow-slate-900/5 dark:shadow-black/20">
-          <div className="flex bg-slate-100 dark:bg-dark-800 rounded-xl p-1 mb-6">
-            <button onClick={() => setIsLogin(true)} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${isLogin ? 'bg-white dark:bg-dark-700 text-slate-900 dark:text-dark-50 shadow-md' : 'text-slate-500 dark:text-dark-400 hover:text-slate-900 dark:hover:text-dark-50'}`}>Sign In</button>
-            <button onClick={() => setIsLogin(false)} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${!isLogin ? 'bg-white dark:bg-dark-700 text-slate-900 dark:text-dark-50 shadow-md' : 'text-slate-500 dark:text-dark-400 hover:text-slate-900 dark:hover:text-dark-50'}`}>Register</button>
-          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
-              <div>
-                <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Full Name</label>
-                <input value={name} onChange={e => setName(e.target.value)} required={!isLogin} className="input-field" placeholder="Your name" />
-              </div>
-            )}
             <div>
               <label className="text-xs text-slate-500 dark:text-dark-400 mb-1 block font-medium">Email</label>
               <input value={email} onChange={e => setEmail(e.target.value)} type="email" required className="input-field" placeholder="admin@sunrise.edu.in" />
@@ -121,11 +105,9 @@ export default function Login() {
             </div>
             <button type="submit" disabled={submitting}
               className="btn-primary w-full flex items-center justify-center gap-2 py-3 text-base">
-              <LogIn size={18} /> {submitting ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
+              <LogIn size={18} /> {submitting ? 'Please wait...' : 'Sign In'}
             </button>
-            {isLogin && (
-              <a href="/forgot-password" className="block text-center text-sm text-primary-400 hover:text-primary-300 mt-3 transition-colors">Forgot Password?</a>
-            )}
+            <a href="/forgot-password" className="block text-center text-sm text-primary-400 hover:text-primary-300 mt-3 transition-colors">Forgot Password?</a>
           </form>
 
           <p className="text-center text-xs text-slate-400 dark:text-dark-500 mt-4">

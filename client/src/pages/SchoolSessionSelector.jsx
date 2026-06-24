@@ -1,37 +1,36 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Calendar, ChevronRight, Loader } from 'lucide-react';
+import { Building2, Calendar, ChevronRight, Loader, LogOut, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 
 export default function SchoolSessionSelector() {
-  const { user, switchSchool, isPlatformUser } = useAuth();
+  const { user, switchSchool, isPlatformUser, logout } = useAuth();
   const navigate = useNavigate();
   const [sessions, setSessions] = useState({});
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(null);
 
   useEffect(() => {
-    if (!user?.schools?.length) {
-      if (import.meta.env.DEV) console.debug('[SchoolSelector] no schools, redirecting to /');
-      navigate('/');
-      return;
-    }
-    // Load sessions for each school
-    const loadSessions = async () => {
-      const sessionMap = {};
-      for (const membership of user.schools) {
-        const schoolId = membership.school?._id || membership.school;
-        try {
-          const res = await api.get(`/setup/sessions?schoolId=${schoolId}`);
-          sessionMap[schoolId] = res.data || [];
-        } catch { sessionMap[schoolId] = []; }
-      }
-      setSessions(sessionMap);
+    if (user?.schools?.length) {
+      // Load sessions for each school
+      const loadSessions = async () => {
+        const sessionMap = {};
+        for (const membership of user.schools) {
+          const schoolId = membership.school?._id || membership.school;
+          try {
+            const res = await api.get(`/setup/sessions?schoolId=${schoolId}`);
+            sessionMap[schoolId] = res.data || [];
+          } catch { sessionMap[schoolId] = []; }
+        }
+        setSessions(sessionMap);
+        setLoading(false);
+      };
+      loadSessions();
+    } else {
       setLoading(false);
-    };
-    loadSessions();
-  }, [user, navigate]);
+    }
+  }, [user]);
 
   const handleSelect = async (schoolId, sessionId) => {
     setSwitching(schoolId);
@@ -67,7 +66,24 @@ export default function SchoolSessionSelector() {
           <h1 className="text-2xl font-bold text-white mb-1">Select School</h1>
           <p className="text-slate-400">Choose which school and session to work with</p>
         </div>
-
+        {!user?.schools?.length ? (
+          <div className="glass-card p-10 text-center max-w-md mx-auto">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-5">
+              <AlertTriangle size={28} className="text-amber-400" />
+            </div>
+            <h2 className="text-xl font-semibold text-white mb-2">No School Assigned</h2>
+            <p className="text-slate-400 text-sm mb-2">
+              Your account has been created, but you haven't been assigned to any school yet.
+            </p>
+            <p className="text-slate-500 text-xs mb-6">
+              Please contact your platform administrator to assign you to a school.
+            </p>
+            <button onClick={() => { logout(); navigate('/login'); }}
+              className="btn-primary flex items-center justify-center gap-2 mx-auto px-6 py-2.5">
+              <LogOut size={16} /> Sign Out
+            </button>
+          </div>
+        ) : (
         <div className="space-y-4">
           {user.schools.map((membership, idx) => {
             const schoolId = membership.school?._id || membership.school;
@@ -103,6 +119,7 @@ export default function SchoolSessionSelector() {
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );

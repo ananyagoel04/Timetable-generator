@@ -35,13 +35,13 @@ export default function WeeklyLoadModal({ isOpen, onClose, requirement, classNam
     if (!requirement) return;
     setForm({
       periodsPerWeek: requirement.periodsPerWeek || 0,
-      minPeriodsPerWeek: requirement.minPeriodsPerWeek || requirement.periodsPerWeek || 0,
-      maxPeriodsPerWeek: requirement.maxPeriodsPerWeek || requirement.periodsPerWeek || 0,
+      minPeriodsPerWeek: requirement.minPeriods || requirement.minPeriodsPerWeek || requirement.periodsPerWeek || 0,
+      maxPeriodsPerWeek: requirement.maxPeriods || requirement.maxPeriodsPerWeek || requirement.periodsPerWeek || 0,
       mode: requirement.mode || 'preferred',
       priority: requirement.priority || 50,
       preferredDays: requirement.preferredDays || [],
       preferredPeriods: requirement.preferredPeriods || [],
-      avoidPeriods: requirement.avoidPeriods || [],
+      avoidPeriods: requirement.avoidedPeriods || requirement.avoidPeriods || [],
       requiresLab: requirement.subject?.requiresLab || false,
       roomType: requirement.subject?.requiresSpecialRoom || 'classroom',
       allowDoublePeriod: requirement.allowDoublePeriod || false,
@@ -74,13 +74,13 @@ export default function WeeklyLoadModal({ isOpen, onClose, requirement, classNam
     try {
       await api.put(`/requirements/${requirement._id}`, {
         periodsPerWeek: form.periodsPerWeek,
-        minPeriodsPerWeek: form.minPeriodsPerWeek,
-        maxPeriodsPerWeek: form.maxPeriodsPerWeek,
+        minPeriods: form.minPeriodsPerWeek,
+        maxPeriods: form.maxPeriodsPerWeek,
         mode: form.mode,
         priority: form.priority,
         preferredDays: form.preferredDays,
         preferredPeriods: form.preferredPeriods,
-        avoidPeriods: form.avoidPeriods,
+        avoidedPeriods: form.avoidPeriods,
         allowDoublePeriod: form.allowDoublePeriod,
         consecutivePreference: form.consecutivePreference,
         consecutiveCount: form.consecutiveCount,

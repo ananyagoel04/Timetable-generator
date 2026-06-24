@@ -59,10 +59,10 @@ export default function CanTeachManager() {
       setTeachers(teachersRes.data?.data || teachersRes.data || []);
       setSubjects(subjectsRes.data?.data || subjectsRes.data || []);
       setClasses(classesRes.data?.data || classesRes.data || []);
-      setMatrixData(matrixRes.data?.data || null);
+      setMatrixData(matrixRes.data?.data || matrixRes.data || null);
       
       const mappingsRes = await api.get('/can-teach');
-      setMappings(mappingsRes.data?.data || []);
+      setMappings(mappingsRes.data?.data || mappingsRes.data || []);
     } catch (err) { toast.error('Failed to load data'); }
     finally { setLoading(false); }
   };

@@ -56,7 +56,7 @@ export default function PeriodStructure() {
     setLoading(true);
     try {
       const r = await api.get('/setup/period-structures');
-      const list = r.data || [];
+      const list = r.data?.data || r.data || [];
       setStructures(list);
       if (list.length > 0 && !selected) selectStructure(list[0]);
     } catch (err) {
@@ -230,6 +230,9 @@ export default function PeriodStructure() {
             </p>
             <div className="flex items-center justify-between">
               <span className={`text-[10px] px-2 py-0.5 rounded ${s.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : s.status === 'draft' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-200 dark:bg-dark-700 text-slate-400 dark:text-dark-500'}`}>{s.status}</span>
+              {s.status === 'draft' && (
+                <span className="text-[9px] text-amber-400 block mt-0.5">⚠ Not used in generation</span>
+              )}
               <div className="flex gap-1">
                 <button onClick={e => { e.stopPropagation(); cloneStructure(s._id); }} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-dark-700 text-slate-400 dark:text-dark-500 hover:text-slate-900 dark:hover:text-dark-50" title="Clone"><Copy size={13} /></button>
                 <button onClick={e => { e.stopPropagation(); archiveStructure(s._id); }} className="p-1 rounded hover:bg-red-500/20 text-slate-400 dark:text-dark-500 hover:text-red-400" title="Archive"><Archive size={13} /></button>
